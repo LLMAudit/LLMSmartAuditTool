@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ChatChain Visualizer</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/materialize/1.0.0/css/materialize.min.css">
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+    <style>
+        body {
+            display: flex;
+            min-height: 100vh;
+            flex-direction: column;
+            background-color: #f5f5f5;
+        }
+
+        main {
+            flex: 1 0 auto;
+            padding: 20px 0;
+        }
+
+        .container {
+            max-width: 1200px;
+            width: 90%;
+        }
+
+        #visualization {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 20px;
+            justify-content: center;
+            margin-top: 30px;
+        }
+
+        .card {
+            width: 300px;
+            margin: 0;
+        }
+
+        .card .card-content {
+            padding: 20px;
+        }
+
+        .simple-phase {
+            background-color: #E8F5E9;
+        }
+
+        .composed-phase {
+            background-color: #E3F2FD;
+        }
+
+        .nested-simple-phase {
+            background-color: #FFF3E0;
+            margin-top: 10px;
+        }
+
+        pre {
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            background-color: #f1f1f1;
+            padding: 10px;
+            border-radius: 4px;
+        }
+
+        .file-field {
+            margin-top: 20px;
+        }
+
+        #exportButton {
+            margin-top: 20px;
+        }
+
+        .main-page-link {
+            margin-left: 20px;
+        }
+    </style>
+</head>
+
+<body>
+    <nav class="light-blue darken-3">
+        <div class="nav-wrapper container">
+            <a href="#" class="brand-logo">ChatChain Visualizer</a>
+            <ul class="right">
+                <li>
+                    <a href="index.html" class="waves-effect waves-light btn main-page-link">
+                        <i class="material-icons left">home</i>Main Page
+                    </a>
+                </li>
+            </ul>
+        </div>
+    </nav>
+
+    <main>
+        <div class="container">
+            <div class="row">
+                <div class="col s12">
+                    <h4>Visualize Your ChatChain Configuration</h4>
+                    <p>Select your ChatChainConfig.json file under CompanyConfig/ to visualize</p>
+                    <div class="file-field input-field">
+                        <div class="btn">
+                            <span>File</span>
+                            <input type="file" id="fileInput" accept=".json">
+                        </div>
+                        <div class="file-path-wrapper">
+                            <input class="file-path validate" type="text" placeholder="Upload ChatChainConfig.json">
+                        </div>
+                    </div>
+                    <button id="exportButton" class="btn waves-effect waves-light">
+                        Export as Image
+                        <i class="material-icons right">file_download</i>
+                    </button>
+                </div>
+            </div>
+            <div id="visualization"></div>
+        </div>
+    </main>
+
+    <footer class="page-footer light-blue darken-3">
+        <div class="container">
+            <div class="row">
+                <div class="col s12">
+                    <h5 class="white-text">About ChatChain Visualizer</h5>
+                    <p class="grey-text text-lighten-4">This tool helps you visualize your ChatChain configuration for better understanding and analysis.</p>
+                </div>
+            </div>
+        </div>
+        <div class="footer-copyright">
+            <div class="container">
+                © 2024 ChatChain Visualizer
+            </div>
+        </div>
+    </footer>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/materialize/1.0.0/js/materialize.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/0.5.0-beta4/html2canvas.min.js"></script>
+    <script>
+        // The JavaScript remains the same as in the previous version
+        document.addEventListener('DOMContentLoaded', function() {
+            const fileInput = document.getElementById('fileInput');
+            const exportButton = document.getElementById('exportButton');
+
+            fileInput.addEventListener('change', handleFileSelect, false);
+            exportButton.addEventListener('click', exportAsImage, false);
+
+            function handleFileSelect(event) {
+                const file = event.target.files[0];
+                if (!file) return;
+
+                const reader = new FileReader();
+                reader.onload = function(event) {
+                    try {
+                        const jsonContent = JSON.parse(event.target.result);
+                        visualizeChain(jsonContent.chain);
+                    } catch (error) {
+                        M.toast({html: 'Error parsing JSON file.', classes: 'red'});
+                    }
+                };
+                reader.readAsText(file);
+            }
+
+            function createCard(element) {
+                const card = document.createElement('div');
+                card.className = 'card';
+
+                const cardContent = document.createElement('div');
+                cardContent.className = 'card-content';
+
+                if (element.phaseType === "ComposedPhase") {
+                    delete element.Composition;
+                }
+
+                const phase = document.createElement('h6');
+                phase.textContent = element.phase || 'No PhaseName';
+
+                const phaseType = document.createElement('p');
+                phaseType.innerHTML = `<strong>PhaseType: </strong>${element.phaseType || 'No phaseType'}`;
+
+                delete element.phase;
+                delete element.phaseType;
+                const jsonContent = document.createElement('pre');
+                jsonContent.textContent = JSON.stringify(element, null, 2);
+
+                cardContent.appendChild(phase);
+                cardContent.appendChild(phaseType);
+                cardContent.appendChild(jsonContent);
+
+                card.appendChild(cardContent);
+
+                return card;
+            }
+
+            function visualizeChain(chain) {
+                const visualization = document.getElementById('visualization');
+                visualization.innerHTML = '';
+
+                chain.forEach(element => {
+                    if (element.phaseType === "ComposedPhase") {
+                        const composition = element.Composition || [];
+                        const card = createCard(element);
+
+                        const nestedCards = composition.map(composedElement => {
+                            return createCard(composedElement);
+                        });
+
+                        const nestedCardWrapper = document.createElement('div');
+                        nestedCardWrapper.style.marginTop = '10px';
+
+                        nestedCards.forEach(nestedCard => {
+                            nestedCard.classList.add('nested-simple-phase');
+                            nestedCardWrapper.appendChild(nestedCard);
+                        });
+
+                        card.classList.add('composed-phase');
+                        card.appendChild(nestedCardWrapper);
+                        visualization.appendChild(card);
+                    } else {
+                        const card = createCard(element);
+                        card.classList.add('simple-phase');
+                        visualization.appendChild(card);
+                    }
+                });
+            }
+
+            function exportAsImage() {
+                const visualization = document.getElementById('visualization');
+                const totalWidth = visualization.scrollWidth;
+                const totalHeight = visualization.scrollHeight;
+
+                html2canvas(visualization, { 
+                    scrollX: 0, 
+                    scrollY: 0, 
+                    width: totalWidth, 
+                    height: totalHeight, 
+                    useCORS: true,
+                    scale: 2 // Increase scale for better quality
+                }).then(canvas => {
+                    const link = document.createElement('a');
+                    link.href = canvas.toDataURL('image/png');
+                    link.download = 'ChatChain_Visualization.png';
+                    link.click();
+                });
+            }
+        });
+    </script>
+</body>
+
+</html>
