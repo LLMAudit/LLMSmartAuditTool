@@ -233,7 +233,7 @@ class ChatChain:
         preprocess_msg = "**[Preprocessing]**\n\n"
         chat_gpt_config = ChatGPTConfig()
 
-        preprocess_msg += "**ChatDev Starts** ({})\n\n".format(self.start_time)
+        preprocess_msg += "**LLM-SmartAudit Starts** ({})\n\n".format(self.start_time)
         preprocess_msg += "**Timestamp**: {}\n\n".format(self.start_time)
         preprocess_msg += "**config_path**: {}\n\n".format(self.config_path)
         preprocess_msg += "**config_phase_path**: {}\n\n".format(self.config_phase_path)
@@ -302,8 +302,8 @@ class ChatChain:
             get_info(self.chat_env.env_dict['directory'], self.log_filepath) + "\n\n🕑**duration**={:.2f}s\n\n".format(
                 duration))
 
-        post_info += "ChatDev Starts ({})".format(self.start_time) + "\n\n"
-        post_info += "ChatDev Ends ({})".format(now_time) + "\n\n"
+        post_info += "LLM-SmartAudit Starts ({})".format(self.start_time) + "\n\n"
+        post_info += "LLM-SmartAudit Ends ({})".format(now_time) + "\n\n"
 
         directory = self.chat_env.env_dict['directory']
         if self.chat_env.config.clear_structure:

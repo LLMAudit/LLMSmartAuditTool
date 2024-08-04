@@ -248,8 +248,8 @@ function extraction(contents) {
     const regex_user = /(.*):(.*)(\[Start Chat\])([.\r\n\s\S\t\d\D]*?)\]([.\r\n\s\S\t\d\D]*)/g;
     const regex_prompt = /(Prompt Engineer):([\S\s]*)/g
 
-    const regex_end = /(AgentTech Ends|ChatDev Ends)/g;
-    const regex_start = /(ChatDev Starts)([\D\s])*(\d*)/g;
+    const regex_end = /(AgentTech Ends|LLM-SmartAudit Ends)/g;
+    const regex_start = /(LLM-SmartAudit Starts)([\D\s])*(\d*)/g;
 
     const regex_task = /(task_prompt)(.*):(.*)/g;
     const regex_info = /Software Info([\r\n\s\S\t\d\D]*)/g;

@@ -88,7 +88,8 @@ Then open your browser and navigate to: http://127.0.0.1:8000/
 #### Replay Multi-conversations Between LLM-based Agents
 
 <div align="center">
-  <img src='./images/replay.png' width="100%" style="max-width: 800px;" alt="Agent Conversations Replay">
+  <img src='./images/replay_1.png' width="45%" style="max-width: 300px;" alt="Replay Process 1">
+  <img src='./images/replay_2.png' width="45%" style="max-width: 300px;" alt="Replay Process 2">
 </div>
 
 ## 🐞 Detector Design in TA Mode
