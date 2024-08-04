@@ -81,8 +81,8 @@ Then open your browser and navigate to: http://127.0.0.1:8000/
 
 <div align="center">
   <img src='./images/Index.png' width="35%" style="max-width: 300px;" alt="Monitoring Process 1">
-  <img src='./images/Index2.png' width="30%" style="max-width: 300px;" alt="Monitoring Process 2">
-  <img src='./images/Index3.png' width="30%" style="max-width: 300px;" alt="Monitoring Process 3">
+  <img src='./images/index2.png' width="30%" style="max-width: 300px;" alt="Monitoring Process 2">
+  <img src='./images/index3.png' width="30%" style="max-width: 300px;" alt="Monitoring Process 3">
 </div>
 
 #### Replay Multi-conversations Between LLM-based Agents
