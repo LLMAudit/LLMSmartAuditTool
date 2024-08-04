@@ -1,7 +1,7 @@
 # LLM-Powered Multi-Agent for Smart Contract Auditing
 
 <div align="center">
-  <img src="./images/logo1.png" height="150" alt="LLM-SmartAudit Logo">
+  <img src="./images/logo1.png" height="100" alt="LLM-SmartAudit Logo">
   <br>
   <img src="https://i.ibb.co/sJ7RhGG/image-41.png" alt="Smart Contract Auditing Banner">
 </div>
@@ -58,8 +58,8 @@ For batch contract analysis and result compilation, we provide the following not
 
 | Feature | Notebook Link |
 |---------|---------------|
-| **Automatic Batch Contract Analysis** | [▶️ Start Analysis](https://colab.research.google.com/drive/1Y_SHymcZGr98832GTSF46J1_JHtHgYhy?usp=sharing) |
-| **Result Compilation** | [▶️ Compile Results](https://colab.research.google.com/drive/11MYFl14fvdVtEHqKxFXDSMY_L80PzWA7?usp=sharing) |
+| **Automatic Batch Contract Analysis** | [▶️ Start Analysis](https://github.com/LLMAudit/LLMSmartAuditTool/blob/main/scripts/auto_test.ipynb) |
+| **Result Compilation** | [▶️ Compile Results](https://github.com/LLMAudit/LLMSmartAuditTool/blob/main/scripts/generateTAReports.ipynb) |
 
 ### 💻️ Web Visualization
 
@@ -74,7 +74,7 @@ Then open your browser and navigate to: http://127.0.0.1:8000/
 #### Workflow of Our Auditing Process
 
 <div align="center">
-  <img src='./images/chatchain.png' width="100%" style="max-width: 800px;" alt="Auditing Workflow">
+  <img src='./images/chatchain.png' width="100%" style="max-width: 300px;" alt="Auditing Workflow">
 </div>
 
 #### Monitoring the Running Process
