@@ -1,24 +1,47 @@
-# LLM-Powered Multi-Agent for Smart Contract Auditing
 
 <div align="center">
-  <img src="./images/logo1.png" height="100" alt="LLM-SmartAudit Logo">
-  <br>
-  <img src="https://i.ibb.co/sJ7RhGG/image-41.png" alt="Smart Contract Auditing Banner">
+
+  <a href=""><picture>
+    <img src="./images/logo1.png" height=100>
+      </picture></a>
+
+
+# LLM-Powered Multi-Agent for Smart Contract Auditing!
+
+![](https://i.ibb.co/sJ7RhGG/image-41.png)
 </div>
 
-## 🕌 LLM-SmartAudit System
+## 🏛️  LLM-SmartAudit System
 
 <div align="center">
   <img src="./images/framework.png" alt="LLM-SmartAudit System" height="250">
 </div>
 
-LLM-SmartAudit is a cutting-edge tool designed to audit smart contracts using advanced language models. Our system provides a comprehensive solution for smart contract auditing, including:
+LLM-SmartAudit is a cutting-edge tool designed to revolutionize smart contract auditing using advanced language models. Our system provides a comprehensive solution for ensuring the security and reliability of blockchain-based applications.
 
-- Automated vulnerability detection flow
-- Batch contract analysis
-- Security analysis and testing
-- User-friendly interface
-- Powerful backend to support the entire auditing process
+### Key Features
+
+- 🔍 Automated vulnerability detection flow
+- 📊 Batch contract analysis
+- 🛡️ In-depth security analysis and testing
+- 🖥️ User-friendly interface
+- 🚀 Powerful backend to support the entire auditing process
+
+## 📑 Quick Links
+| Resource | Description | Link |
+|----------|-------------|------|
+| 📊 Dataset | Explore our benchmark dataset | [View Dataset](https://github.com/LLMAudit/LLMSmartAuditTool/tree/main/benchmark) |
+| 📈 Evaluation Results | See our tool's performance metrics | [View Results](https://github.com/LLMAudit/LLMSmartAuditTool/tree/main/evaluation) |
+| 🛠️ Scripts | Access our utility scripts | [View Scripts](https://github.com/LLMAudit/LLMSmartAuditTool/blob/main/scripts) |
+| 📚 Documentation | Comprehensive guide to using LLM-SmartAudit | [Read Docs](https://github.com/LLMAudit/LLMSmartAuditTool/wiki) |
+| 🧪 Test Cases | Explore our test suite | [View Tests](https://github.com/LLMAudit/LLMSmartAuditTool/tree/main/tests) |
+| 📝 API Reference | Detailed API documentation | [View API Docs](https://github.com/LLMAudit/LLMSmartAuditTool/blob/main/API.md) |
+| 🚀 Installation Guide | Step-by-step setup instructions | [Getting Started](#️#getting-started) |
+| 👥 Contributing Guidelines | Learn how to contribute to the project | [Getting Started](#️#notebook-usage) |
+| 📜 License | View our project license | [License](https://github.com/LLMAudit/LLMSmartAuditTool/blob/main/LICENSE) |
+| 🐛 Issue Tracker | Report bugs or request features | [Issues](https://github.com/LLMAudit/LLMSmartAuditTool/issues) |
+| 💬 Discussions | Join our community discussions | [Discussions](https://github.com/LLMAudit/LLMSmartAuditTool/discussions) |
+
 
 ## ⚡️ Getting Started
 
@@ -26,7 +49,7 @@ LLM-SmartAudit is a cutting-edge tool designed to audit smart contracts using ad
 
 For single contract analysis, follow these steps:
 
-#### 1. Install Environment
+#### 1. Set Up Environment
 
 ```bash
 pip install -r requirements.txt
@@ -42,17 +65,17 @@ export OPENAI_API_KEY="your_openai_api_key"
 
 Input your Solidity smart contract code into `task`.
 
-- Run BA mode:
+- **Run BA mode:**
   ```bash
   python3 run.py --org "" --config "SmartContractBA" --task "" --name ""
   ```
 
-- Run TA mode:
+- **Run TA mode:**
   ```bash
   python3 run.py --org "" --config "SmartContractTA" --task "" --name ""
   ```
 
-### 🛠️ Notebook Usage
+### 📓 Notebook Usage
 
 For batch contract analysis and result compilation, we provide the following notebooks:
 
@@ -103,3 +126,17 @@ Then open your browser and navigate to: http://127.0.0.1:8000/
 
   <img src="https://i.ibb.co/sJ7RhGG/image-41.png" alt="Smart Contract Auditing Banner">
 </div>
+
+## 🤝 Contributing
+
+We welcome contributions from the community! If you'd like to contribute, please:
+
+1. Fork the repository
+2. Create a new branch for your feature
+3. Commit your changes
+4. Push to your branch
+5. Open a pull request
+
+## 📄 License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
