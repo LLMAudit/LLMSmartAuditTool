@@ -2,7 +2,7 @@
 <div align="center">
 
   <a href=""><picture>
-    <img src="./images/logo1.png" height=100>
+    <img src="./images/logo_LLM.jpg" height=100>
       </picture></a>
 
 
@@ -161,6 +161,75 @@ Then open your browser and navigate to: http://127.0.0.1:8000/
 |39|Input Validation Detector|Lack of Input Validation vulnerabilities can lead to unexpected behavior and security risks, allowing attackers to exploit invalid or malicious inputs.<br>Please conduct a thorough analysis, considering the following information:<br>1. Review the contract's code logic to identify any potential areas where inputs are not properly validated.<br>2. Examine critical functions, particularly those involving fund transfers, resource allocation, or state changes, to ensure they are not susceptible to Lack of Input Validation.<br>3. Investigate scenarios where user inputs can be manipulated or are not checked for validity, such as zero addresses, negative values, or values exceeding certain thresholds.|
 |40|DoS Detector| Your primary objective is to conduct a comprehensive inspection of the provided contract code, with a particular focus on identifying vulnerabilities related to Denial of Service (DoS). DoS vulnerabilities can occur in the following cases:<br>1. When loops have an unbounded iteration count, leading to potential gas exhaustion.<br>2. When the contract makes external calls that can fail or consume excessive gas.<br>3. When the contract depends on certain state conditions that can be manipulated by an attacker to cause failures.<br>4. When an attacker can send high-gas transactions to consume most of the block's gas limit, making it difficult for other transactions to be included in the block.<br>Please conduct a thorough analysis, considering the following information:<br>1. Review the contract's code logic to identify any potential areas where unbounded loops might cause gas exhaustion.<br>2. Examine external calls in the contract and ensure they are handled properly to avoid excessive gas consumption or failures.<br>3. Analyze state-dependent logic to identify any potential manipulations that could cause DoS.<br>4. Consider the overall design of the contract to ensure it is resilient against high-gas transactions and other DoS tactics.|
 
+
+## 🚀 Newly Discovered Vulnerabilities:
+Our models have successfully identified **11 vulnerabilities** across **4 different types** that were not detected in the audit reports from Real-world datasets. These findings have been submitted to the Code4rena community for verification.
+
+
+- **Unlimited Token Approval**:
+
+ > -- SushiYieldSource.sol of Project `14`: The `supplyTokenTo` function, the contract calls `sushiAddr.approve(address(sushiBar), amount);` which approves the SushiBar contract to spend the specified `amount` of tokens. If the `amount` is significantly larger than what is necessary for the current operation, it can lead to a situation where the SushiBar contract has excessive approval to spend tokens on behalf of the user. This can be exploited if the SushiBar contract is compromised or behaves unexpectedly, allowing an attacker to drain tokens from the user's account.
+
+```solidity
+  function supplyTokenTo(uint256 amount, address to) public override {
+      sushiAddr.transferFrom(msg.sender, address(this), amount);
+      sushiAddr.approve(address(sushiBar), amount);
+
+      ISushiBar bar = sushiBar;
+      uint256 beforeBalance = bar.balanceOf(address(this));
+      
+      bar.enter(amount);
+      
+      uint256 afterBalance = bar.balanceOf(address(this));
+      uint256 balanceDiff = afterBalance.sub(beforeBalance);
+      
+      balances[to] = balances[to].add(balanceDiff);
+  }
+```
+
+  > --  NFTXStakingZap.sol of Project `69`: The contract contains a potential Unlimited Token Approval vulnerability in the constructor where it calls the approve function with a maximum value for the WETH token. Specifically, the line:
+  `IERC20Upgradeable(address(IUniswapV2Router01(_sushiRouter).WETH())).approve(_sushiRouter, type(uint256).max);`
+  This allows the sushiRouter to spend an unlimited amount of WETH tokens on behalf of the contract, which can be exploited if the sushiRouter is compromised or if there are any unforeseen issues with the router's implementation. 
+
+```solidity
+constructor(address _nftxFactory, address _sushiRouter) Ownable() ReentrancyGuard() {
+    nftxFactory = INFTXVaultFactory(_nftxFactory);
+    lpStaking = INFTXLPStaking(INFTXSimpleFeeDistributor(INFTXVaultFactory(_nftxFactory).feeDistributor()).lpStaking());
+    inventoryStaking = INFTXInventoryStaking(INFTXSimpleFeeDistributor(INFTXVaultFactory(_nftxFactory).feeDistributor()).inventoryStaking());
+    sushiRouter = IUniswapV2Router01(_sushiRouter);
+    WETH = IWETH(IUniswapV2Router01(_sushiRouter).WETH());
+    IERC20Upgradeable(address(IUniswapV2Router01(_sushiRouter).WETH())).approve(_sushiRouter, type(uint256).max);
+}
+```
+
+ >  -- PARMinerV2.sol of Project `115`: The contract contains a line where it approves an unlimited amount of tokens for the core contract to spend on behalf of the PARMinerV2 contract. Specifically, the line `_par.approve(address(_a.parallel().core()), uint256(-1));` sets the allowance to the maximum possible value for the core contract. This creates a vulnerability known as Unlimited Token Approval, which can be exploited by malicious actors if they gain control over the core contract, allowing them to drain tokens from the PARMinerV2 contract without any restrictions.
+
+- **Lack of Input Validation**:
+>  -- sYETIToken.sol of Project `66`: In the `setTransferRatio` function, there is a check to ensure that the `newTransferRatio` is not zero and does not exceed `1e18`. However, there is no validation to ensure that the `newTransferRatio` is within a reasonable range for the intended use case. If an excessively high value were to be set, it could lead to unintended consequences in the contract's logic.
+
+```
+  function setTransferRatio(uint256 newTransferRatio) external onlyOwner {
+      require(newTransferRatio != 0, "Zero transfer ratio");
+      require(newTransferRatio <= 1e18, "Transfer ratio too high");
+      transferRatio = newTransferRatio;
+  }
+```
+
+-- **Handling Partial Withdrawals**
+> -- yVault.sol of Project `107`: The contract does not adequately handle scenarios where the old strategy may not have sufficient funds to fulfill the `withdraw` call for the full amount during migration. If the old strategy has insufficient funds, tokens could be left behind, leading to potential loss of funds or incomplete migration.
+
+> -- synthVault.sol of Project `20`: The contract does not adequately handle scenarios where a user attempts to withdraw a partial amount of their deposit. In the `_processWithdraw` function, the withdrawal amount is calculated based on the basis points provided, but there is no check to ensure that the amount being withdrawn is available in the user's balance. If the user tries to withdraw more than their available balance, it could lead to an underflow or an incorrect state of the user's deposit and weight mappings. This could result in the user being unable to withdraw their full balance or losing track of their actual deposits and weights.
+
+-- **Unchecked External Calls**
+>  -- yVault.sol of Project `107`: The `earn` function and `withdraw` function makes an external call to the `controller` contract to earn tokens after transferring the tokens to the controller. However, there is no check on the success of the `safeTransfer` call. If the `controller` contract is malicious or fails for any reason, the contract would not be aware of this failure, potentially leading to a loss of funds or unintended behavior.
+
+> -- IndexTemplate.sol of Project `71`: In the `deposit` function, the contract calls `vault.addValue(_amount, msg.sender, address(this));` without checking the return value. If the `addValue` function in the `vault` contract fails (e.g., due to a require statement), the transaction will revert, but the state changes that occur before this call (like minting tokens) will not be reverted, leading to inconsistent states.
+
+> -- IndexTemplate.sol of Project `71`: The contract makes several external calls to other contracts, particularly in the `getUnifiedAssets` function where it calls `IVault(vaults[i]).totalAssets()` and `IERC20Detailed(IVault(vaults[i]).token()).decimals()`. These calls do not check the return values, which can lead to silent failures if the called contract does not behave as expected. For instance, if `totalAssets()` fails or returns an unexpected value, it could lead to incorrect calculations and potential loss of funds.
+
+>  -- UniV3Vault.sol of Project `58`: The contract makes several external calls to the `INonfungiblePositionManager` interface, particularly in the `collectEarnings`, `_push`, and `_pullUniV3Nft` functions. These functions involve transferring tokens and collecting earnings without checking the return values of these calls.
+
+
 <div align="center">
 
   <img src="https://i.ibb.co/sJ7RhGG/image-41.png" alt="Smart Contract Auditing Banner">
@@ -179,3 +248,5 @@ We welcome contributions from the community! If you'd like to contribute, please
 ## 📄 License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+LLM-SmartAudit is licensed and distributed under the AGPL-3.0 (AGPLv3) License
