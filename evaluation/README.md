@@ -4,11 +4,24 @@
   <img src="../images/logo1.png" height="80" alt="FTAudit Logo">
 </div>
 
-## Overview
+## 📖 Overview
 
-The main evaluation results have been presented in our paper. Additionally, we provide an evaluation of different temperatures on the labeled dataset.
+The main evaluation results have been presented in our paper. Below is a summary of our findings across different datasets and modes.
 
-## Evaluation Results
+|Dataset| Mode | Results |
+|-------|---------|---------------|
+|Labeled| **Board Analysis (BA)** | [Summary](https://github.com/LLMAudit/LLMSmartAuditTool/tree/main/evaluation/LabeledResult/BA) |
+|Labeled| **Target Analysis (TA)** | [Summary](https://github.com/LLMAudit/LLMSmartAuditTool/tree/main/evaluation/LabeledResult/TA) |
+|Real-World| **Board Analysis (BA)** | [Summary](https://github.com/LLMAudit/LLMSmartAuditTool/tree/main/evaluation/RealworldResult) |
+|Real-World| **Target Analysis (TA)** | [Summary](https://github.com/LLMAudit/LLMSmartAuditTool/tree/main/evaluation/RealworldResult) |
+
+
+For more detailed evaluation results, please visit our [HuggingFace Repository](https://huggingface.co/datasets/weifar/FTSmartAuditTool).
+
+
+### 🌡️  Evaluation Results on Different Temperatures
+
+We evaluated the performance of our model at different temperatures (0.2, 0.6, and 1.0) on the labeled dataset. The results are summarized in the table below:
 
 Here's a summary of our findings:
 
