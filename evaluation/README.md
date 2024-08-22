@@ -16,6 +16,9 @@ The main evaluation results have been presented in our paper. Below is a summary
 |Real-World| **Target Analysis (TA)** | [Summary](https://github.com/LLMAudit/LLMSmartAuditTool/tree/main/evaluation/RealworldResult) |
 
 
+For more detailed evaluation results, please visit our [HuggingFace Repository](https://huggingface.co/datasets/LLMAuditing/FTSmartAuditResults).
+
+
 
 ### 🌡️  Evaluation Results on Different Temperatures
 
