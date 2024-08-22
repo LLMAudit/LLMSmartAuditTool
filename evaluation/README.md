@@ -12,8 +12,11 @@ The main evaluation results have been presented in our paper. Below is a summary
 |-------|---------|---------------|
 |Labeled| **Board Analysis (BA)** | [Summary](https://github.com/LLMAudit/LLMSmartAuditTool/tree/main/evaluation/LabeledResult/BA) |
 |Labeled| **Target Analysis (TA)** | [Summary](https://github.com/LLMAudit/LLMSmartAuditTool/tree/main/evaluation/LabeledResult/TA) |
+|Labeled| **Traditional Tools**| [Findings](https://github.com/LLMAudit/LLMSmartAuditTool/blob/main/evaluation/LabeledResult/traditional_tools_results.csv)|
+|Labeled| **zero-shot Prompting** |[Summary](https://github.com/LLMAudit/LLMSmartAuditTool/tree/main/evaluation/LabeledResult)|
 |Real-World| **Board Analysis (BA)** | [Summary](https://github.com/LLMAudit/LLMSmartAuditTool/tree/main/evaluation/RealworldResult) |
 |Real-World| **Target Analysis (TA)** | [Summary](https://github.com/LLMAudit/LLMSmartAuditTool/tree/main/evaluation/RealworldResult) |
+|Real-World| **Traditional Tools**| [Findings](https://github.com/LLMAudit/LLMSmartAuditTool/blob/main/evaluation/RealworldResult/traditional_tools_results.csv)|
 
 
 For more detailed evaluation results, please visit our [HuggingFace Repository](https://huggingface.co/datasets/LLMAuditing/FTSmartAuditResults).
