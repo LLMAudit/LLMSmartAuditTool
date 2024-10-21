@@ -235,6 +235,17 @@ constructor(address _nftxFactory, address _sushiRouter) Ownable() ReentrancyGuar
   <img src="https://i.ibb.co/sJ7RhGG/image-41.png" alt="Smart Contract Auditing Banner">
 </div>
 
+## Citation
+Feel free to cite us if you like LLM-SmartAudit.
+```bibtex
+@article{wei2024llm,
+  title={LLM-SmartAudit: Advanced Smart Contract Vulnerability Detection},
+  author={Wei, Zhiyuan and Sun, Jing and Zhang, Zijiang and Zhang, Xianhao},
+  journal={arXiv preprint arXiv:2410.09381},
+  year={2024}
+}
+```
+
 ## 🤝 Contributing
 
 We welcome contributions from the community! If you'd like to contribute, please:
