@@ -34,6 +34,8 @@ The LLM-SmartAudit task queue comprises three primary subtasks: Contract Analysi
   <img src="./images/thinkRea.png" alt="task diagram in two modes" height="350">
 </div>
 
+Different from direct response from LLM, such as few-shots and Chain-of-Thought (CoT), we design new prompt strategies, which come from the ideas of ReAct and Buffer-of-Thought.
+
 ### Key Features
 
 - 🔍 Automated vulnerability detection flow
