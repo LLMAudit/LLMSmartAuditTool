@@ -13,14 +13,25 @@
 
 ## 🏛️  LLM-SmartAudit System
 
+### Framework
 <div align="center">
   <img src="./images/multiframework.png" alt="LLM-SmartAudit System" height="250">
 </div>
 
 LLM-SmartAudit is a cutting-edge tool designed to revolutionize smart contract auditing using advanced language models. Our system provides a comprehensive solution for ensuring the security and reliability of blockchain-based applications.
 
+### Automatic Task Diagram
+
 <div align="center">
-  <img src="./images/taskqueue.png" alt="task diagram in two modes" height="350">
+  <img src="./images/taskqueue.png" alt="task diagram in two modes" height="400">
+</div>
+
+The LLM-SmartAudit task queue comprises three primary subtasks: Contract Analysis, Vulnerabilities Identification, and Comprehresive Report. Each subtask employs task-oriented role-playing, involving two distinct roles collaborating to achieve specific objectives. 
+
+### Thought-Reasoning and Buffer-Reasoning Strategies
+
+<div align="center">
+  <img src="./images/thinkRea.png" alt="task diagram in two modes" height="350">
 </div>
 
 ### Key Features
