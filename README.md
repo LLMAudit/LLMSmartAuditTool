@@ -20,7 +20,7 @@
 LLM-SmartAudit is a cutting-edge tool designed to revolutionize smart contract auditing using advanced language models. Our system provides a comprehensive solution for ensuring the security and reliability of blockchain-based applications.
 
 <div align="center">
-  <img src="./images/taskqueue.png" alt="task diagram in two modes" height="250">
+  <img src="./images/taskqueue.png" alt="task diagram in two modes" height="350">
 </div>
 
 ### Key Features
