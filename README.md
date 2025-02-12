@@ -276,5 +276,3 @@ We welcome contributions from the community! If you'd like to contribute, please
 ## 📄 License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-LLM-SmartAudit is licensed and distributed under the AGPL-3.0 (AGPLv3) License
