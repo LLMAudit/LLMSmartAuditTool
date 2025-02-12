@@ -265,14 +265,17 @@ Feel free to cite us if you like LLM-SmartAudit.
 
 ## 🤝 Contributing
 
-We welcome contributions from the community! If you'd like to contribute, please:
+We welcome contributions to make this project better! To contribute, please follow these steps:
 
-1. Fork the repository
-2. Create a new branch for your feature
-3. Commit your changes
-4. Push to your branch
-5. Open a pull request
+1. Fork the repository to your own GitHub account
+2. Create a new branch for the feature or fix you want to work on
+3. Make your changes and write clear, concise commit messages
+4. Push your changes to your forked repository
+5. Open a pull request with a description of what you've done
+
+We'll review your pull request and get back to you as soon as possible!
 
 ## 📄 License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the Apache-2.0 License. See the [LICENSE](LICENSE) file for more details.
+
