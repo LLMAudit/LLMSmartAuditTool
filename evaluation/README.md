@@ -8,6 +8,27 @@
 
 The main evaluation results have been presented in our paper. Below is a summary of our findings across different datasets and modes.
 
+## 😙 Dataset Information
+
+### 📂 Labeled Dataset
+Common Vulnerability Type:
+
+1. Reentrancy (RE)
+2. Integer Overflow/Underflow (IO)
+3. Unchecked Send (USE)
+4. Unsafe Delegatecall (UD)
+5. Timestamp Manipulation (TM)
+6. ransaction Order Dependence (TOD)
+7. Radomness Manipulation (RM)
+8. Authorization Issue using ‘tx.origin’ (TX)
+9. Unsafe Suicide (USU)
+10. Gas Limitation (GL)
+
+### 📂 Real-World Dataset
+
+
+## 📊 Evaluation Results
+
 |Dataset| Mode | Results |
 |-------|---------|---------------|
 |Labeled| **Board Analysis (BA)** | [Summary](https://github.com/LLMAudit/LLMSmartAuditTool/tree/main/evaluation/LabeledResult/BA) |
@@ -16,10 +37,14 @@ The main evaluation results have been presented in our paper. Below is a summary
 |Labeled| **zero-shot Prompting** |[Summary](https://github.com/LLMAudit/LLMSmartAuditTool/tree/main/evaluation/LabeledResult)|
 |Real-World| **Board Analysis (BA)** | [Summary](https://github.com/LLMAudit/LLMSmartAuditTool/tree/main/evaluation/RealworldResult) |
 |Real-World| **Target Analysis (TA)** | [Summary](https://github.com/LLMAudit/LLMSmartAuditTool/tree/main/evaluation/RealworldResult) |
+|Real-World| **Hybrid Mode**| [Findings]()|
 |Real-World| **Traditional Tools**| [Findings](https://github.com/LLMAudit/LLMSmartAuditTool/blob/main/evaluation/RealworldResult/traditional_tools_results.csv)|
 
 
+
 For more detailed evaluation results, please visit our [HuggingFace Repository](https://huggingface.co/datasets/LLMAuditing/FTSmartAuditResults).
+
+
 
 
 
