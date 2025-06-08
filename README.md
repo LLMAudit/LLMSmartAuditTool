@@ -63,6 +63,11 @@ Different from direct response from LLM, such as few-shots and Chain-of-Thought 
 <!-- | 📜 License | View our project license | [License](https://github.com/LLMAudit/LLMSmartAuditTool/blob/main/LICENSE) | -->
 <!-- | 💬 Discussions | Join our community discussions | [Discussions](https://github.com/LLMAudit/LLMSmartAuditTool/discussions) | -->
 
+## 🦙 LLM-SmartAudit.ai News
+- 🆕 **New Experiments!** 114 distinct vulnerability types from 5,245 vulneablility labels in Code4rena [Code4rena](https://code4rena.com/) project, the summary files are available in [Report](https://github.com/LLMAudit/LLMSmartAuditTool/blob/main/evaluation/classficationSummary) folder.
+- 🆕 **New Experiments!** Operational cost for all 5,063 contracts in 102 real-world projects, detailed cost for each contract is list in [Report](https://github.com/LLMAudit/LLMSmartAuditTool/blob/main/evaluation/costAnalysis)
+- 🆕 **New Release!** New version of OPENAI API, and new models available for use.
+
 
 ## ⚡️ Getting Started
 
