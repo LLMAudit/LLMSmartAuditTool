@@ -66,10 +66,10 @@ The distribution of real-world dataset is available in `Realworld_contract_distr
     * Frontrunning proposal creation in Governor contracts
     * Signature verification bypass in Cairo (`is_valid_eth_signature`)
     * Custom trusted forwarder issues with `ERC2771Context`
-4. **Access Control:** 4 CVEs,
+4. **Access Control:** 5 CVEs,
     *  `transfer` function in EOSIO batdappboomx, `breed` function in Seal Finance, `sellTokenForLRC` in Loopring, `addMeByRC` in RC, `Owned.setOwner` in PepeGxng, `DrugDealer` in Ether Cartel, `setOwner` in Aurora DAO and Aurora IDEX Membership, `onlyOwner` modifier in Coinlancer
 4. **Early EVM Vulnerabilities:** Core Ethereum Virtual Machine implementation issues, 2 CVE
-5. **Logic:** Other/Miscellaneous Smart Contract Vulnerabilities, 20 CVE
+5. **Logic:** Other/Miscellaneous Smart Contract Vulnerabilities, 19 CVE
     * Access control issues (e.g., `transfer` function in EOSIO batdappboomx, `breed` function in Seal Finance, `sellTokenForLRC` in Loopring, `addMeByRC` in RC, `Owned.setOwner` in PepeGxng, `DrugDealer` in Ether Cartel, `setOwner` in Aurora DAO and Aurora IDEX Membership, `onlyOwner` modifier in Coinlancer)
     * Predictable random numbers in gambling games (e.g., HashHeroes Tiles, RuletkaIo, Greedy 599, Lucky9io, Cryptogs, The Ethereum Lottery, All For One, MyCryptoChamp, 1000 Guess, CryptoSaga)
     * Denial of Service (DoS) attacks (e.g., `doPayouts` in MegaCryptoPolis, EIP-165 `supportsInterface` query in OpenZeppelin)
