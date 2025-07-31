@@ -1,0 +1,317 @@
+Contract Code,Stage 1 Audit Result,Stage 2 Audit Result
+"/*
+ * @source: Source Code first verified at https://etherscan.io on Friday
+ * @author: -
+ * @vulnerable_at_lines: 93
+ */
+
+pragma solidity ^0.4.25;
+
+contract Token {
+    function transfer(address receiver, uint amount) public;
+
+    function balanceOf(address receiver) public returns (uint);
+}
+
+///@title Axioms-Airdrops
+///@author  Lucasxhy & Kafcioo
+
+contract Axioms {
+    Airdrop[] public airdrops;
+    address public owner;
+
+    ///@notice  Set the creator of the smart contract to be its sole owner
+    constructor() public {
+        owner = msg.sender;
+    }
+
+    ///@notice  Modifier to require a minimum amount fo ether for the function to add and airdrop
+    modifier minEth() {
+        require(msg.value >= 200000000000000000);
+        // 0.2ETH Change this to amount of eth needed for gas fee in GWEI!
+        _;
+    }
+    ///@notice  Modifier that only allows the owner to execute a function
+    modifier onlyOwner() {
+        require(msg.sender == owner);
+        _;
+    }
+    ///@notice  Creates a structure for airdrops, which stores all the necessary information for users to look up the history effectively and directly from the smart contract.
+    struct Airdrop {
+        string name;
+        uint id;
+        uint tokenAmount;
+        uint countDown;
+        uint timeStamp;
+        uint gasFeePaid;
+        uint decimals;
+        address distributor;
+        Token tokenSC;
+    }
+
+    ///@notice  Adds a new airdrop to the smart contract and starts the count down until it is distributed
+    function addNewAirdrop(
+        string _name,
+        uint _tokenAmount,
+        uint _countDown,
+        address _smartContract,
+        uint _decimals
+    ) public payable minEth {
+        Token t = Token(_smartContract);
+        if (t.balanceOf(this) >= _tokenAmount) {
+            uint lastIndex = airdrops.length++;
+            Airdrop storage airdrop = airdrops[lastIndex];
+            airdrop.name = _name;
+            airdrop.id = lastIndex;
+            airdrop.decimals = _decimals;
+            airdrop.tokenAmount = _tokenAmount;
+            airdrop.countDown = _countDown;
+            airdrop.gasFeePaid = msg.value;
+            airdrop.timeStamp = now;
+            airdrop.distributor = msg.sender;
+            airdrop.tokenSC = Token(_smartContract);
+        } else
+            revert(
+                ""Air Drop not added, Please make sure you send your ERC20 tokens to the smart contract before adding new airdrop""
+            );
+    }
+
+    ///@notice  Distirbutes a differen quantity of tokens to all the specified addresses.
+    ///@dev Distribution will only occur when a distribute function is called, and passed the correct parameters, it is not the smart contracts job to produce the addresses or determine the ammounts
+    ///@param index  The airdrop to distribute based in the the array in which is saved
+    ///@param _addrs The set of addresses in array form, to which the airdrop will be distributed
+    ///@param _vals  The set of values to be distributed to each address in array form
+    function distributeAirdrop(
+        uint index,
+        address[] _addrs,
+        uint[] _vals
+    ) public onlyOwner {
+        Airdrop memory airdrop = airdrops[index];
+        if (airdrop.countDown <= now) {
+            // <yes> <report> Gasless_Send
+            for (uint i = 0; i < _addrs.length; ++i) {
+                airdrop.tokenSC.transfer(_addrs[i], _vals[i]);
+            }
+        } else revert(""Distribution Failed: Count Down not gone yet"");
+    }
+
+    // Refound tokens back to the to airdrop creator
+    function refoundTokens(uint index) public onlyOwner {
+        Airdrop memory airdrop = airdrops[index];
+        airdrop.tokenSC.transfer(airdrop.distributor, airdrop.tokenAmount);
+    }
+
+    function transferGasFee(uint index) public onlyOwner {
+        Airdrop memory airdrop = airdrops[index];
+        owner.transfer(airdrop.gasFeePaid);
+    }
+}
+","### Security Audit Report for Axioms Smart Contract
+
+This audit aims to highlight the potential vulnerabilities in the provided Axioms smart contract code. Each function is analyzed independently, followed by a general overview of certain critical issues and logic flaws that may lead to loss of funds or unexpected behavior.
+
+#### 1. Critical Issues
+
+#### Function: `addNewAirdrop`
+- **Vulnerability to Reentrancy**
+  - The `addNewAirdrop` function does not prevent reentrant calls. The transfer of tokens could happen after the state change, allowing potential attacks while the state is not correctly updated.
+  
+- **Incorrect Airdrop Indexing**
+  - The line `uint lastIndex = airdrops.length++;` is incorrect. `airdrops.length++` will first return the current length, then increment it. This will cause the indexing of the newly created `Airdrop` to be incorrect. It should be:
+    ```solidity
+    uint lastIndex = airdrops.length;
+    airdrops.push(Airdrop(...));
+    ```
+
+- **Lack of Token Address Validation**
+  - The contract does not check if `_smartContract` actually implements the necessary methods (like `transfer` and `balanceOf`). A malicious contract could be passed instead of a valid token contract.
+
+#### Function: `distributeAirdrop`
+- **Gas Limit Issues**
+  - The function loops through a potentially unbounded array of addresses and values, which can lead to exceeding the gas limit. If `address[] _addrs` or `uint[] _vals` is large, the transaction can fail.
+  
+- **Improper Handling of Transfer Failures**
+  - The transfer function does not require any checks for whether the transfer was successful. This could leave users with the impression that the transfer happened when it did not.
+  
+- **Use of Memory Instead of Storage**
+  - The function copies the `Airdrop` struct to memory, which does not reflect changes back to storage. This leads to problems since any updates will not persist after the function execution.
+
+#### Function: `refoundTokens`
+- **Reentrancy Risk**
+  - Similar to `addNewAirdrop`, calling `airdrop.tokenSC.transfer` can lead to reentrancy if the external contract is malicious, allowing for abuse of the contract's funds.
+
+- **Potential for Token Transfer Failure**
+  - If the token transfer fails, there is no fallback or handling mechanism in place to address that failure.
+
+#### Function: `transferGasFee`
+- **Owner Can Drain Funds**
+  - The owner is able to withdraw the gas fee paid during an airdrop at any time; if there are no proper checks, this could lead to a situation where legitimate airdrop creators cannot recover their gas if they lose trust in the owner.
+  
+#### 2. Logic Issues
+- **Countdown Logic**
+  - While the countdown for distribution is checked, there is no enforcement on when airdrops can be created relative to prior countdowns. This could lead to situations where an inappropriate number of airdrops are set to the same time or are overlapping, creating confusion.
+
+- **Unlimited Airdrop Creation**
+  - There is no limit on the number of airdrops that can be created. If there are too many airdrops enacted, this could lead to excessive gas consumption for users when attempting to retrieve airdrop information later.
+
+#### 3. Recommendations
+1. **Upgrade Solidity Version:**
+   - Migrate to a modern version of Solidity (>=0.8.x) to take advantage of built-in safety features and reduce vulnerabilities inherent in older versions.
+
+2. **Implement Reentrancy Guards:**
+   - Utilize a pattern (like `nonReentrant` modifier) to prevent reentrant calls.
+
+3. **Add Proper Token Checks:**
+   - Validate that `_smartContract` is a legitimate token contract conforming to the ERC20 standard before proceeding.
+
+4. **Error Handling in Transfers:**
+   - Modify token transfers to check the return values and handle failures gracefully.
+
+5. **Limit Airdrop Creation:**
+   - Set sensible limits on the number of airdrops that can be created to prevent abuse.
+
+6. **More Descriptive Errors:**
+   - Provide more specific revert messages to facilitate easier debugging and clearer failure contexts.
+
+7. **Review Gas Limit for Loop Operations:**
+   - Consider using chunked transfers or a queue-like mechanism to ensure that large distributions can be split across multiple transactions.
+
+By addressing these concerns, the security and reliability of the Axioms smart contract can be significantly enhanced, minimizing the risk of fund loss or exploitation.","Certainly! Let's perform a detailed audit of each function in the `Axioms` contract, focusing on potential vulnerabilities, logical flaws, and security concerns.
+
+### Function: `addNewAirdrop`
+
+```solidity
+function addNewAirdrop(
+    string _name,
+    uint _tokenAmount,
+    uint _countDown,
+    address _smartContract,
+    uint _decimals
+) public payable minEth {
+    Token t = Token(_smartContract);
+    if (t.balanceOf(this) >= _tokenAmount) {
+        uint lastIndex = airdrops.length++;
+        Airdrop storage airdrop = airdrops[lastIndex];
+        airdrop.name = _name;
+        airdrop.id = lastIndex;
+        airdrop.decimals = _decimals;
+        airdrop.tokenAmount = _tokenAmount;
+        airdrop.countDown = _countDown;
+        airdrop.gasFeePaid = msg.value;
+        airdrop.timeStamp = now;
+        airdrop.distributor = msg.sender;
+        airdrop.tokenSC = Token(_smartContract);
+    } else
+        revert(
+            ""Air Drop not added, Please make sure you send your ERC20 tokens to the smart contract before adding new airdrop""
+        );
+}
+```
+
+#### Issues:
+1. **Incorrect Indexing:**
+   - The line `uint lastIndex = airdrops.length++;` is incorrect. This results in the `lastIndex` being the current length before incrementing, leading to an incorrect index for the new airdrop. It should be `uint lastIndex = airdrops.length; airdrops.push(...)`.
+
+2. **Token Contract Validation:**
+   - There’s no validation to ensure that the provided address `_smartContract` actually points to a valid ERC20 token contract. A malicious contract can be specified, leading to unexpected behaviors.
+
+3. **Token Balance Check:**
+   - The token balance check is conducted on the contract itself, which could lead to situations where the tokens are not transferred prior to calling this function. There’s no check to ensure that `_smartContract` has enough tokens beforehand.
+
+4. **Reentrancy Risk:**
+   - Although there are no external calls in this function, any modification of state variables without complete validation may risk future functions being susceptible to reentrancy if they depend on the newly registered airdrop.
+
+5. **Lack of Events:**
+   - There are no events emitted upon the successful addition of a new airdrop. This lack limits transparency and the ability to track actions on-chain.
+
+### Function: `distributeAirdrop`
+
+```solidity
+function distributeAirdrop(
+    uint index,
+    address[] _addrs,
+    uint[] _vals
+) public onlyOwner {
+    Airdrop memory airdrop = airdrops[index];
+    if (airdrop.countDown <= now) {
+        for (uint i = 0; i < _addrs.length; ++i) {
+            airdrop.tokenSC.transfer(_addrs[i], _vals[i]);
+        }
+    } else revert(""Distribution Failed: Count Down not gone yet"");
+}
+```
+
+#### Issues:
+1. **Gas Limit Issues:**
+   - The function has a loop iterating over arrays of addresses and values. If the arrays are large, the transaction might run out of gas.
+
+2. **Improper Handling of Transfer Failures:**
+   - It does not handle the failure condition for the transfer function. If any transfer fails (returns false), it will not revert or log this failure, potentially resulting in only a subset of the intended airdrop being performed.
+
+3. **Using Memory Instead of Storage:**
+   - The use of `memory` to hold the `Airdrop` struct means that any updates will not persist after the function execution. This is problematic, as there could be an assumption that `airdrop` reflects the storage state.
+
+4. **Lack of Events:**
+   - There are no events emitted after successful distribution, making it hard to track distributed airdrops.
+
+### Function: `refoundTokens`
+
+```solidity
+function refoundTokens(uint index) public onlyOwner {
+    Airdrop memory airdrop = airdrops[index];
+    airdrop.tokenSC.transfer(airdrop.distributor, airdrop.tokenAmount);
+}
+```
+
+#### Issues:
+1. **Reentrancy Risk:**
+   - Similar to other functions, calling `transfer()` on `tokenSC` could allow a reentrant call potentially resulting in loss of funds. Implementing a reentrancy guard is advisable.
+
+2. **Failure to Handle Transfer Issues:**
+   - Lack of verification on whether the token transfer succeeded. If it fails, it can lead to unexpected behavior without proper error handling.
+
+3. **Use of Memory Instead of Storage:**
+   - Again, the use of `memory` rather than `storage` means any changes to the `Airdrop` struct won't persist.
+
+### Function: `transferGasFee`
+
+```solidity
+function transferGasFee(uint index) public onlyOwner {
+    Airdrop memory airdrop = airdrops[index];
+    owner.transfer(airdrop.gasFeePaid);
+}
+```
+
+#### Issues:
+1. **Unsafe Ether Transfer:**
+   - Directly transferring gas fees to the owner does not have a check for successful transfer. If the transfer fails, there’s no way to recover the funds.
+
+2. **Potential for Fund Drain:**
+   - The owner has the power to withdraw gas fees without limits. If the owner decided to take excessively high values, it could drain the contract.
+
+3. **Lack of Events:**
+   - Similar to previous functions, there are no events emitted after the gas fee has been transferred, making tracking difficult.
+
+### General Observations
+
+1. **Use of `now`:**
+   - `now` is deprecated in newer versions of Solidity. It would be better to use `block.timestamp`.
+
+2. **Lack of Events:**
+   - Throughout the contract, important state-changing actions don't emit events. This makes it hard to track on-chain actions and could hinder debugging and monitoring.
+
+3. **No Limits on Airdrops:**
+   - There are no constraints on the number of airdrops that can be created, which could lead to a situation where a large number of airdrop entries exist.
+
+4. **Using Deprecated Practices:**
+   - Features like `transfer` will be limited in gas, leading to potential failures if the tokens being transferred require more gas. Consider implementing methods that can handle this properly.
+
+### Recommendations
+- Implement proper checks and validations for ERC20 tokens.
+- Amend indexing for airdrop creations.
+- Refactor the loops in the distribution process to manage gas usage better and handle transfers' success/failure cases.
+- Establish guidelines around gas limits and event logging for transparency and tracking.
+- Upgrade the contract's Solidity version to a safe and more current version for enhanced security features. 
+- Consider employing patterns to protect against reentrancy across all functions that involve token transfers or Ether transfers. 
+
+By addressing these issues one by one and ensuring robust handling throughout the contract, the security and reliability of the Axioms contract would significantly increase."

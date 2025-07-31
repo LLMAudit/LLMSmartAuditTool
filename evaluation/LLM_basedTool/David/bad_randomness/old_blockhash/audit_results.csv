@@ -1,0 +1,138 @@
+Contract Code,Stage 1 Audit Result,Stage 2 Audit Result
+"/*
+ * @source: https://github.com/SmartContractSecurity/SWC-registry/blob/master/test_cases/weak_randomness/old_blockhash.sol
+ * @author: -
+ * @vulnerable_at_lines: 35
+ */
+
+pragma solidity ^0.4.24;
+
+//Based on the the Capture the Ether challange at https://capturetheether.com/challenges/lotteries/predict-the-block-hash/
+//Note that while it seems to have a 1/2^256 chance you guess the right hash, actually blockhash returns zero for blocks numbers that are more than 256 blocks ago so you can guess zero and wait.
+contract PredictTheBlockHashChallenge {
+
+    struct guess{
+      uint block;
+      bytes32 guess;
+    }
+
+    mapping(address => guess) guesses;
+
+    constructor() public payable {
+        require(msg.value == 1 ether);
+    }
+
+    function lockInGuess(bytes32 hash) public payable {
+        require(guesses[msg.sender].block == 0);
+        require(msg.value == 1 ether);
+
+        guesses[msg.sender].guess = hash;
+        guesses[msg.sender].block  = block.number + 1;
+    }
+
+    function settle() public {
+        require(block.number > guesses[msg.sender].block);
+        // <yes> <report> BAD_RANDOMNESS
+        bytes32 answer = blockhash(guesses[msg.sender].block);
+
+        guesses[msg.sender].block = 0;
+        if (guesses[msg.sender].guess == answer) {
+            msg.sender.transfer(2 ether);
+        }
+    }
+}
+","### Security Audit of `PredictTheBlockHashChallenge` Contract
+
+The provided contract aims to allow users to predict the block hash for the next block after locking in a guess with an Ether deposit. The audit will analyze each function for potential vulnerabilities and logic issues.
+
+#### 1. **Potential Vulnerabilities**
+
+##### Function: `constructor()`
+- **Analysis**: The constructor requires that the initial deployed contract position has a value of 1 Ether.
+- **Issue**: If the contract is deployed without any Ether being sent, it will revert. No fundamental vulnerabilities in terms of fund loss exist in this function, but developers should consider the implications of fund management.
+
+##### Function: `lockInGuess(bytes32 hash)`
+- **Analysis**: This function locks in a user's guess for the block hash and records the block number.
+- **Critical Issues**:
+    - **Reentrancy Vulnerability**: Although there is no external call within this function, make sure to account for any future changes or upgrades that may introduce reentrancy.
+    - **Gas Limit Issue**: If many users are locking in guesses simultaneously, the function may fail if it exceeds gas limits or if there are too many users.
+    - Consider adding a “nonce” or an identifier to ensure that two submissions from one address cannot happen concurrently.
+
+##### Function: `settle()`
+- **Analysis**: This function checks if the current block number is greater than the block number recorded during the guess and calculates the block hash to compare against the user's guess.
+- **Critical Issues**:
+    - **Weak Randomness**: The comparison against `blockhash` for a predetermined future block is weak. Since the blockhash function can be influenced by miners, this opens up a potential exploit where a user can predict or manipulate their chances, or even brute force their guess over time if they control block generation.
+    - **The `blockhash` function returns `0` for blocks older than 256**, making it possible for users to predict zero if the block is old.
+    - **Logic Flaw**: Once the winner is determined, the winning guess is not traceable, leading to potential fraudulent claims if a validated guess exists (similar to a replay attack).
+    - **Excessive Gas Consumption**: If multiple users are trying to call this function in a single block, it may cause excessive gas consumption or lead to failures during settlement, particularly if a malicious actor tries to occupy the block.
+
+#### 2. **Overall Issues and Recommendations**
+- **Improvements to Randomness**: Implement a more robust source of randomness rather than relying on the output of `blockhash`.
+- **Fund Security**: Make sure that the winning conditions and payouts are modified to protect against abuse, such as limiting the number of guesses per address or implementing a significant time delay before new guesses can be made.
+- **Access Control**: Consider implementing access control for the contract functions to prevent unauthorized interactions.
+
+### Conclusion
+The `PredictTheBlockHashChallenge` contract has several issues, primarily concerning weak randomness and logic flaws, which could be abused by a malicious actor leading to potential financial loss. The contract would benefit significantly from improvements in secure randomness, more rigorous access controls, and logic adjustments to ensure the integrity of the guessing game. Therefore, refactoring this contract with security best practices is strongly recommended.","Absolutely! Let's break down the contract function by function, analyzing each for potential vulnerabilities, logic issues, and their implications for the security of funds. 
+
+### 1. `constructor()`
+```solidity
+constructor() public payable {
+    require(msg.value == 1 ether);
+}
+```
+**Analysis**:
+- **Functionality**: The constructor requires the contract to receive exactly 1 Ether upon deployment.
+- **Vulnerability**:
+  - **Reverts on Deployment Without Ether**: If the contract is deployed without sending 1 Ether, it will revert. However, this is not a direct vulnerability but a requirement that must be adhered to.
+- **Recommendation**: Ensure that users understand this requirement because failing to provide 1 Ether upon deployment will result in a transaction failure.
+
+### 2. `lockInGuess(bytes32 hash)`
+```solidity
+function lockInGuess(bytes32 hash) public payable {
+    require(guesses[msg.sender].block == 0);
+    require(msg.value == 1 ether);
+
+    guesses[msg.sender].guess = hash;
+    guesses[msg.sender].block = block.number + 1;
+}
+```
+**Analysis**:
+- **Functionality**: Enables users to lock in their guess with a 1 Ether deposit.
+- **Vulnerabilities**:
+  - **Reentrancy Vulnerability**: Although there are no external calls made here, creating a good practice would be ensuring to implement reentrancy guards or designing the contract in a way to avoid potential reentrancy indirectly (e.g., using checks-effects-interactions pattern).
+  - **Guess Collisions**: The use of `require(guesses[msg.sender].block == 0)` means that if a user attempts to make a second guess before the first has been settled, it will fail, but it doesn't prevent someone from manipulating their guesses or submissions over time.
+  - **Denial of Service (DoS)**: If a user locks in a guess and goes offline, they potentially block that spot from being used again, leading to inefficient use of contracts.
+  - **No Nonce or Unique Identifier**: Allowing users to lock in guesses without a nonce means they could potentially use the same hash in different lock-in attempts, leading to confusion or potential issues.
+
+**Recommendation**: Implement safeguards considering user behavior, like a cooldown period for new guesses and possibly a unique nonce to avoid guess collisions.
+
+### 3. `settle()`
+```solidity
+function settle() public {
+    require(block.number > guesses[msg.sender].block);
+    bytes32 answer = blockhash(guesses[msg.sender].block);
+    
+    guesses[msg.sender].block = 0;
+    if (guesses[msg.sender].guess == answer) {
+        msg.sender.transfer(2 ether);
+    }
+}
+```
+**Analysis**:
+- **Functionality**: Determines if the user's guess matches the block hash of the specified block number and settles winnings accordingly.
+- **Vulnerabilities**:
+  - **Weak Randomness**: The use of `blockhash` for a prediction game is fundamentally flawed. If the miner is aware of a player's guess, they can manipulate the block being generated (time, nonce, etc.) to optimize their block hash to favor a player or assume knowledge of upcoming blocks.
+  - **Blockhash Limitations**: The function will yield `0x0` for block hashes older than 256 blocks, meaning users can wait to claim on future guesses with no real valid guesses, as there will be no output for those older blocks.
+  - **Potential DoS**: If multiple `settle()` calls occur at once and block gas limits are reached, operations could run out of gas potentially limiting users' ability to settle. 
+  - **User Funds**: Users might unintentionally lose their deposits if they settle and the blockhash times out or returns `0x0`.
+
+**Recommendation**: Use a more robust randomness method, such as Chainlink VRF or other oracle solutions, to improve security against manipulation. Investigate alternative designs to reposition funds safer in scenarios that create payout conditions.
+
+### Conclusion
+Overall, while each function serves its purpose in the contract, they collectively exhibit vulnerabilities that can lead to significant financial issues:
+
+- The constructor has a necessary payment condition.
+- The `lockInGuess` function risks reentrancy and user confusion regarding guesses.
+- The `settle` function has critical weak randomness and misuse vulnerabilities.
+
+Refactoring to address these concerns, implementing best practices for fund security, and improving user experience measures are crucial steps forward in bolstering the contract against exploitation."

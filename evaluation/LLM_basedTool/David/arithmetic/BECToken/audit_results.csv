@@ -1,0 +1,508 @@
+Contract Code,Stage 1 Audit Result,Stage 2 Audit Result
+"// Bug: 17
+
+pragma solidity ^0.4.16;
+
+/**
+ * @title SafeMath
+ * @dev Math operations with safety checks that throw on error
+ */
+library SafeMath {
+  function mul(uint256 a, uint256 b) internal constant returns (uint256) {
+    uint256 c = a * b;
+    require(a == 0 || c / a == b);
+    return c;
+  }
+
+  function div(uint256 a, uint256 b) internal constant returns (uint256) {
+    // require(b > 0); // Solidity automatically throws when dividing by 0
+    uint256 c = a / b;
+    // require(a == b * c + a % b); // There is no case in which this doesn't hold
+    return c;
+  }
+
+  function sub(uint256 a, uint256 b) internal constant returns (uint256) {
+    require(b <= a);
+    return a - b;
+  }
+
+  function add(uint256 a, uint256 b) internal constant returns (uint256) {
+    uint256 c = a + b;
+    require(c >= a);
+    return c;
+  }
+}
+
+/**
+ * @title ERC20Basic
+ * @dev Simpler version of ERC20 interface
+ * @dev see https://github.com/ethereum/EIPs/issues/179
+ */
+contract ERC20Basic {
+  uint256 public totalSupply;
+  function balanceOf(address who) public constant returns (uint256);
+  function transfer(address to, uint256 value) public returns (bool);
+  event Transfer(address indexed from, address indexed to, uint256 value);
+}
+
+/**
+ * @title Basic token
+ * @dev Basic version of StandardToken, with no allowances.
+ */
+contract BasicToken is ERC20Basic {
+  using SafeMath for uint256;
+
+  mapping(address => uint256) balances;
+
+  /**
+  * @dev transfer token for a specified address
+  * @param _to The address to transfer to.
+  * @param _value The amount to be transferred.
+  */
+  function transfer(address _to, uint256 _value) public returns (bool) {
+    require(_to != address(0));
+    require(_value > 0 && _value <= balances[msg.sender]);
+
+    // SafeMath.sub will throw if there is not enough balance.
+    balances[msg.sender] = balances[msg.sender].sub(_value);
+    balances[_to] = balances[_to].add(_value);
+    Transfer(msg.sender, _to, _value);
+    return true;
+  }
+
+  /**
+  * @dev Gets the balance of the specified address.
+  * @param _owner The address to query the the balance of.
+  * @return An uint256 representing the amount owned by the passed address.
+  */
+  function balanceOf(address _owner) public constant returns (uint256 balance) {
+    return balances[_owner];
+  }
+}
+
+/**
+ * @title ERC20 interface
+ * @dev see https://github.com/ethereum/EIPs/issues/20
+ */
+contract ERC20 is ERC20Basic {
+  function allowance(address owner, address spender) public constant returns (uint256);
+  function transferFrom(address from, address to, uint256 value) public returns (bool);
+  function approve(address spender, uint256 value) public returns (bool);
+  event Approval(address indexed owner, address indexed spender, uint256 value);
+}
+
+
+/**
+ * @title Standard ERC20 token
+ *
+ * @dev Implementation of the basic standard token.
+ * @dev https://github.com/ethereum/EIPs/issues/20
+ * @dev Based on code by FirstBlood: https://github.com/Firstbloodio/token/blob/master/smart_contract/FirstBloodToken.sol
+ */
+contract StandardToken is ERC20, BasicToken {
+
+  mapping (address => mapping (address => uint256)) internal allowed;
+
+
+  /**
+   * @dev Transfer tokens from one address to another
+   * @param _from address The address which you want to send tokens from
+   * @param _to address The address which you want to transfer to
+   * @param _value uint256 the amount of tokens to be transferred
+   */
+  function transferFrom(address _from, address _to, uint256 _value) public returns (bool) {
+    require(_to != address(0));
+    require(_value > 0 && _value <= balances[_from]);
+    require(_value <= allowed[_from][msg.sender]);
+
+    balances[_from] = balances[_from].sub(_value);
+    balances[_to] = balances[_to].add(_value);
+    allowed[_from][msg.sender] = allowed[_from][msg.sender].sub(_value);
+    Transfer(_from, _to, _value);
+    return true;
+  }
+
+  /**
+   * @dev Approve the passed address to spend the specified amount of tokens on behalf of msg.sender.
+   *
+   * Beware that changing an allowance with this method brings the risk that someone may use both the old
+   * and the new allowance by unfortunate transaction ordering. One possible solution to mitigate this
+   * race condition is to first reduce the spender's allowance to 0 and set the desired value afterwards:
+   * https://github.com/ethereum/EIPs/issues/20#issuecomment-263524729
+   * @param _spender The address which will spend the funds.
+   * @param _value The amount of tokens to be spent.
+   */
+  function approve(address _spender, uint256 _value) public returns (bool) {
+    allowed[msg.sender][_spender] = _value;
+    Approval(msg.sender, _spender, _value);
+    return true;
+  }
+
+  /**
+   * @dev Function to check the amount of tokens that an owner allowed to a spender.
+   * @param _owner address The address which owns the funds.
+   * @param _spender address The address which will spend the funds.
+   * @return A uint256 specifying the amount of tokens still available for the spender.
+   */
+  function allowance(address _owner, address _spender) public constant returns (uint256 remaining) {
+    return allowed[_owner][_spender];
+  }
+}
+
+/**
+ * @title Ownable
+ * @dev The Ownable contract has an owner address, and provides basic authorization control
+ * functions, this simplifies the implementation of ""user permissions"".
+ */
+contract Ownable {
+  address public owner;
+
+
+  event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);
+
+
+  /**
+   * @dev The Ownable constructor sets the original `owner` of the contract to the sender
+   * account.
+   */
+  function Ownable() {
+    owner = msg.sender;
+  }
+
+
+  /**
+   * @dev Throws if called by any account other than the owner.
+   */
+  modifier onlyOwner() {
+    require(msg.sender == owner);
+    _;
+  }
+
+
+  /**
+   * @dev Allows the current owner to transfer control of the contract to a newOwner.
+   * @param newOwner The address to transfer ownership to.
+   */
+  function transferOwnership(address newOwner) onlyOwner public {
+    require(newOwner != address(0));
+    OwnershipTransferred(owner, newOwner);
+    owner = newOwner;
+  }
+
+}
+
+/**
+ * @title Pausable
+ * @dev Base contract which allows children to implement an emergency stop mechanism.
+ */
+contract Pausable is Ownable {
+  event Pause();
+  event Unpause();
+
+  bool public paused = false;
+
+
+  /**
+   * @dev Modifier to make a function callable only when the contract is not paused.
+   */
+  modifier whenNotPaused() {
+    require(!paused);
+    _;
+  }
+
+  /**
+   * @dev Modifier to make a function callable only when the contract is paused.
+   */
+  modifier whenPaused() {
+    require(paused);
+    _;
+  }
+
+  /**
+   * @dev called by the owner to pause, triggers stopped state
+   */
+  function pause() onlyOwner whenNotPaused public {
+    paused = true;
+    Pause();
+  }
+
+  /**
+   * @dev called by the owner to unpause, returns to normal state
+   */
+  function unpause() onlyOwner whenPaused public {
+    paused = false;
+    Unpause();
+  }
+}
+
+/**
+ * @title Pausable token
+ *
+ * @dev StandardToken modified with pausable transfers.
+ **/
+
+contract PausableToken is StandardToken, Pausable {
+
+  function transfer(address _to, uint256 _value) public whenNotPaused returns (bool) {
+    return super.transfer(_to, _value);
+  }
+
+  function transferFrom(address _from, address _to, uint256 _value) public whenNotPaused returns (bool) {
+    return super.transferFrom(_from, _to, _value);
+  }
+
+  function approve(address _spender, uint256 _value) public whenNotPaused returns (bool) {
+    return super.approve(_spender, _value);
+  }
+
+  function batchTransfer(address[] _receivers, uint256 _value) public whenNotPaused returns (bool) {
+    uint cnt = _receivers.length;
+    // <yes> <report> ARITHMETIC
+    uint256 amount = uint256(cnt) * _value;
+    require(cnt > 0 && cnt <= 20);
+    require(_value > 0 && balances[msg.sender] >= amount);
+
+    balances[msg.sender] = balances[msg.sender].sub(amount);
+    for (uint i = 0; i < cnt; i++) {
+        balances[_receivers[i]] = balances[_receivers[i]].add(_value);
+        Transfer(msg.sender, _receivers[i], _value);
+    }
+    return true;
+  }
+}
+
+/**
+ * @title Bec Token
+ *
+ * @dev Implementation of Bec Token based on the basic standard token.
+ */
+contract BecToken is PausableToken {
+    /**
+    * Public variables of the token
+    * The following variables are OPTIONAL vanities. One does not have to include them.
+    * They allow one to customise the token contract & in no way influences the core functionality.
+    * Some wallets/interfaces might not even bother to look at this information.
+    */
+    string public name = ""BeautyChain"";
+    string public symbol = ""BEC"";
+    string public version = '1.0.0';
+    uint8 public decimals = 18;
+
+    /**
+     * @dev Function to check the amount of tokens that an owner allowed to a spender.
+     */
+    function BecToken() {
+      totalSupply = 7000000000 * (10**(uint256(decimals)));
+      balances[msg.sender] = totalSupply;    
+      // Give the creator all initial tokens
+    }
+
+    function () {
+        //if ether is sent to this address, send it back.
+        revert();
+    }
+}
+","### Security Audit of the `BecToken` Smart Contract
+
+This audit identifies vulnerabilities, logic errors, and other concerns that may lead to loss of funds, focusing on each function independently and their interactions.
+
+#### Key Findings
+
+1. **Fallback Function**:
+   ```solidity
+   function () {
+       //if ether is sent to this address, send it back.
+       revert();
+   }
+   ```
+   - **Issue**: The fallback function does not handle Ether properly. It reverts the transaction if Ether is sent to the contract, which is unnecessary and may mislead users. The contract should explicitly use `receive()` or handle Ether deposits if required.
+  
+2. **Constructor for Initialization**:
+   ```solidity
+   function BecToken() {
+      totalSupply = 7000000000 * (10**(uint256(decimals)));
+      balances[msg.sender] = totalSupply;    
+   }
+   ```
+   - **Issue**: The constructor does not provide a way to validate if the total supply is appropriate. It’s hard-coded, which limits flexibility. It's also not robust to changes in decimals.
+
+3. **Token Transfer Logic in `batchTransfer`**:
+   ```solidity
+   require(cnt > 0 && cnt <= 20);
+   ```
+   - **Issue**: Limiting batch transfers to 20 addresses could prevent larger volumes from being sent and encourages users to conduct multiple transactions in a single call, potentially increasing gas costs. 
+   - **Mitigation**: Consider using a lower limit or handle larger arrays with additional logic, if feasible.
+
+4. **Transfer Function reverts**:
+   ```solidity
+   require(_value > 0 && _value <= balances[msg.sender]);
+   ```
+   - Although the code checks that the `_value` is not zero and doesn’t exceed the balance, it could benefit from being more explicit about ensuring that the sender has effective balance checking post transfers in batch scenarios.
+
+5. **`approve` Function Risk**:
+   ```solidity
+   allowed[msg.sender][_spender] = _value;
+   ```
+   - **Issue**: This does not handle the race condition between approval and transferFrom. Users could be at risk from potential attacks if they approve an allowance and it gets reset.
+   - **Mitigation**: Implement a recommended pattern of first setting the allowance to zero, then setting it to the desired value to avoid racing conditions.
+
+6. **Emergency Mechanism**:
+   ```solidity
+   function pause() onlyOwner whenNotPaused public {
+       paused = true;
+   }
+   ```
+   - **Consideration**: Ensure that pausing functions are actively monitored and logged effectively, as the ability to block transfers may be misused if the owner’s credentials are compromised.
+
+7. **Lack of Events for Critical Functions**:
+   - Functions such as `pause`, `unpause`, and ownership transfers should emit events to improve transparency. While `Transfer` and `Approval` events are present, consider enforcing best practices for all critical state changes.
+
+8. **Use of `constant`**:
+   - In several mappings (`allowed`, `balances`), consider using `view` instead of `constant`, as the latter is deprecated in Solidity versions beyond 0.4.16. This does not immediately affect functionality but ensures compliance with newer practices.
+
+9. **Hard-Coded Values**:
+   - Some values are hard-coded (like decimals and token supply), which can lead to inflexibility and potential issues in token management. Consider using parameters in the constructor for these values.
+
+10. **Overall Gas Efficiency**:
+    - Functions could be optimized for gas consumption, especially in batch operations. Utilizing a more gas-efficient logic could lead to cost savings if the contract operates in high volume.
+
+### Recommendations for Improvement
+
+1. **Handle Ether Transactions**: Consider if the contract should accept or reject Ether and modify the fallback function accordingly.
+
+2. **Approval Pattern**: Implement the allowance resetting pattern to protect against racing conditions when approving tokens.
+
+3. **Detailed Event Emissions**: Ensure all significant state-changing actions emit events to facilitate better tracking and transparency.
+
+4. **Flexible Initialization**: Allow parameters for token supply and decimals in the constructor to provide flexibility.
+
+5. **Update to Latest Solidity Version**: When possible, re-evaluate the code using the latest Solidity version for security improvements and utilize modern patterns.
+
+6. **Version Updates**: Document future upgrades properly to avoid confusion since the codebase may evolve significantly.
+
+7. **Thorough Testing**: Ensure to include unit and integration tests, especially for edge cases in transfer functionalities and allowance management.
+
+Overall, while the `BecToken` contract has a reasonable structure, areas exist for significant improvement in handling security, flexibility, and user experience.","Certainly! Let’s analyze each function in the `BecToken` contract and its parent contracts step-by-step, identifying potential vulnerabilities or logical errors.
+
+### 1. `SafeMath` Library
+
+#### Functions: 
+- `mul(uint256 a, uint256 b)`
+- `div(uint256 a, uint256 b)`
+- `sub(uint256 a, uint256 b)`
+- `add(uint256 a, uint256 b)`
+
+#### Analysis:
+- The `SafeMath` methods provide safe arithmetic operations and guard against overflow/underflow. However:
+  - The `div` function commented out the zero-check, but it should ideally handle division by zero more explicitly since relying on Solidity's automatic behavior may be risky.
+  - No issues found.
+
+### 2. `ERC20Basic` Contract
+
+#### Functions:
+- `transfer(address to, uint256 value)`
+- `balanceOf(address who)`
+
+#### Analysis:
+- **transfer**:
+  - Checks recipient address and ensures the sender has sufficient balance. The checks seem sound. 
+  - However, it does not check for zero transfers (though it should be implicitly covered since `_value` is strictly positive), leading to potential confusion on intent.
+  
+- **balanceOf**:
+  - Simple getter function with no ownership or permission concerns. No issues here.
+
+### 3. `BasicToken` Contract
+
+#### Inherits `ERC20Basic`
+
+- Inherits the same two functions. No additional implementations or modifications are done, so no issues.
+
+### 4. `ERC20` Contract
+
+#### Functions:
+- `allowance(address owner, address spender)`
+- `transferFrom(address from, address to, uint256 value)`
+- `approve(address spender, uint256 value)`
+
+#### Analysis:
+- **allowance**: Simple getter function with no issues.
+  
+- **transferFrom**:
+  - Checks recipient address, sender balance, and allowance, which are standard security checks.
+  - However, it does not consider the possibility of a transfer being blocked (e.g., by the paused state). Adding a `whenNotPaused` modifier to this function is advisable.
+
+- **approve**:
+  - No checks for overlapping allowances or prevention of race conditions. The potential to be exploited exists as mentioned earlier. Implement the zero-approval pattern to mitigate risks.
+
+### 5. `StandardToken` Contract
+
+#### Inherits `ERC20` and `BasicToken`
+
+- Inherits the same implementations. No modifications are done.
+
+### 6. `Ownable` Contract
+
+#### Functions:
+- `transferOwnership(address newOwner)`
+
+#### Analysis:
+- This function correctly checks against zero addresses and emits an event. No critical issues.
+
+### 7. `Pausable` Contract
+
+#### Functions:
+- `pause()`
+- `unpause()`
+
+#### Analysis:
+- Both functions check conditions for the owner and paused state, emitting the respective events. No visible vulnerabilities here, but:
+  - Consider logging more detailed events for visibility on emergency stops.
+
+### 8. `PausableToken` Contract
+
+#### Functions:
+- `transfer(address _to, uint256 _value)`
+- `transferFrom(address _from, address _to, uint256 _value)`
+- `approve(address _spender, uint256 _value)`
+- `batchTransfer(address[] _receivers, uint256 _value)`
+
+#### Analysis:
+- **transfer**, **transferFrom**, **approve**:
+  - These methods all inherit functions from their parent classes but integrate the paused modifier.
+  - No critical issues found in these altered implementations, but ensure that allowance setting follows best practices.
+
+- **batchTransfer**:
+  - The implementation checks for valid length and sufficiency of balance.
+  - The logic for calculating `amount` from `_value` and `cnt` is prone to overflow if inputs are excessively large and should be checked for total balance sufficiency.
+  - The limit on 20 transfers can be seen as a limitation on the user experience.
+
+### 9. `BecToken` Contract
+
+#### Functions:
+- Constructor (initializes state)
+- Fallback function
+
+#### Analysis:
+- **Constructor**:
+  - Sets the total supply and assigns it to the owner, which is a standard operation. However, as mentioned, it's hard-coded:
+    - Consider allowing dynamic input values.
+     
+- **Fallback function**:
+  - Simply reverts transactions with Ether sent to the contract. This is safe in the current context but may confuse users expecting Ether handling.
+
+### Summary Findings
+
+- Overall, while the functions are secure in terms of basic implementation and checks, there are a few suggestions:
+  - Consider using more robust patterns in `approve` and `transferFrom`.
+  - The `batchTransfer` feature has room for improvement in terms of user interaction and gas efficiency.
+  - Fallback behavior should be reconsidered or documented for better user-facing clarity.
+
+### Final Recommendations
+
+1. **Adopt the Zero-Approval Pattern** to mitigate the issues related to race conditions in `approve`.
+2. **Enhance User Experiences** by considering flexible constructor arguments for token attributes, augmenting batch transfer logic, and possibly removing hard-coded limits.
+3. **Clarify Fallback Handling** to inform users more clearly about intended Ether interactions with the contract.
+4. **Ensure Comprehensive Testing** of all edge cases to fortify against unforeseen exploits or user errors. 
+5. As a long-term goal, consider migrating to a more current version of Solidity for enhanced features and security measures. 
+
+By following these suggestions, the overall security and usability of the `BecToken` contract can be greatly improved."

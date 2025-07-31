@@ -1,0 +1,396 @@
+Contract Code,Stage 1 Audit Result,Stage 2 Audit Result
+"pragma solidity ^0.8.0;
+
+abstract contract Proxy {
+    function _delegate(address implementation) internal virtual {
+        assembly {
+            calldatacopy(0, 0, calldatasize())
+            let result := delegatecall(gas(), implementation, 0, calldatasize(), 0, 0)
+            returndatacopy(0, 0, returndatasize())
+            switch result
+            case 0 { revert(0, returndatasize()) }
+            default { return(0, returndatasize()) }
+        }
+    }
+
+    function _implementation() internal view virtual returns (address);
+
+    function _fallback() internal virtual {
+        _beforeFallback();
+        _delegate(_implementation());
+    }
+
+    fallback () external payable virtual {
+        _fallback();
+    }
+    receive () external payable virtual {
+        _fallback();
+    }
+    function _beforeFallback() internal virtual {
+    }
+}
+
+
+library StorageSlot {
+    struct AddressSlot {
+        address value;
+    }
+
+    struct BooleanSlot {
+        bool value;
+    }
+
+    struct Bytes32Slot {
+        bytes32 value;
+    }
+
+    struct Uint256Slot {
+        uint256 value;
+    }
+
+    function getAddressSlot(bytes32 slot) internal pure returns (AddressSlot storage r) {
+        assembly {
+            r.slot := slot
+        }
+    }
+
+    function getBooleanSlot(bytes32 slot) internal pure returns (BooleanSlot storage r) {
+        assembly {
+            r.slot := slot
+        }
+    }
+    function getBytes32Slot(bytes32 slot) internal pure returns (Bytes32Slot storage r) {
+        assembly {
+            r.slot := slot
+        }
+    }
+
+    function getUint256Slot(bytes32 slot) internal pure returns (Uint256Slot storage r) {
+        assembly {
+            r.slot := slot
+        }
+    }
+}
+
+abstract contract ERC1967Upgrade {
+    bytes32 private constant _ROLLBACK_SLOT = 0x4910fdfa16fed3260ed0e7147f7cc6da11a60208b5b9406d12a635614ffd9143;
+
+    bytes32 internal constant _IMPLEMENTATION_SLOT = 0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc;
+
+    event Upgraded(address indexed implementation);
+
+
+    function _getImplementation() internal view returns (address) {
+        return StorageSlot.getAddressSlot(_IMPLEMENTATION_SLOT).value;
+    }
+
+    function _setImplementation(address newImplementation) private {
+        require(Address.isContract(newImplementation), ""ERC1967: new implementation is not a contract"");
+        StorageSlot.getAddressSlot(_IMPLEMENTATION_SLOT).value = newImplementation;
+    }
+
+    function _upgradeTo(address newImplementation) internal {
+        _setImplementation(newImplementation);
+        emit Upgraded(newImplementation);
+    }
+
+    function _upgradeToAndCall(address newImplementation, bytes memory data, bool forceCall) internal {
+        _setImplementation(newImplementation);
+        emit Upgraded(newImplementation);
+        if (data.length > 0 || forceCall) {
+            Address.functionDelegateCall(newImplementation, data);
+        }
+    }
+
+    function _upgradeToAndCallSecure(address newImplementation, bytes memory data, bool forceCall) internal {
+        address oldImplementation = _getImplementation();
+
+        _setImplementation(newImplementation);
+        if (data.length > 0 || forceCall) {
+            Address.functionDelegateCall(newImplementation, data);
+        }
+
+        StorageSlot.BooleanSlot storage rollbackTesting = StorageSlot.getBooleanSlot(_ROLLBACK_SLOT);
+        if (!rollbackTesting.value) {
+            rollbackTesting.value = true;
+            Address.functionDelegateCall(
+                newImplementation,
+                abi.encodeWithSignature(
+                    ""upgradeTo(address)"",
+                    oldImplementation
+                )
+            );
+            rollbackTesting.value = false;
+            require(oldImplementation == _getImplementation(), ""ERC1967Upgrade: upgrade breaks further upgrades"");
+            _setImplementation(newImplementation);
+            emit Upgraded(newImplementation);
+        }
+    }
+
+    function _upgradeBeaconToAndCall(address newBeacon, bytes memory data, bool forceCall) internal {
+        _setBeacon(newBeacon);
+        emit BeaconUpgraded(newBeacon);
+        if (data.length > 0 || forceCall) {
+            Address.functionDelegateCall(IBeacon(newBeacon).implementation(), data);
+        }
+    }
+
+    bytes32 internal constant _ADMIN_SLOT = 0xb53127684a568b3173ae13b9f8a6016e243e63b6e8ee1178d6a717850b5d6103;
+
+    event AdminChanged(address previousAdmin, address newAdmin);
+
+    function _getAdmin() internal view returns (address) {
+        return StorageSlot.getAddressSlot(_ADMIN_SLOT).value;
+    }
+
+    function _setAdmin(address newAdmin) private {
+        require(newAdmin != address(0), ""ERC1967: new admin is the zero address"");
+        StorageSlot.getAddressSlot(_ADMIN_SLOT).value = newAdmin;
+    }
+
+    function _changeAdmin(address newAdmin) internal {
+        emit AdminChanged(_getAdmin(), newAdmin);
+        _setAdmin(newAdmin);
+    }
+
+    bytes32 internal constant _BEACON_SLOT = 0xa3f0ad74e5423aebfd80d3ef4346578335a9a72aeaee59ff6cb3582b35133d50;
+
+    event BeaconUpgraded(address indexed beacon);
+
+    function _getBeacon() internal view returns (address) {
+        return StorageSlot.getAddressSlot(_BEACON_SLOT).value;
+    }
+
+    function _setBeacon(address newBeacon) private {
+        require(
+            Address.isContract(newBeacon),
+            ""ERC1967: new beacon is not a contract""
+        );
+        require(
+            Address.isContract(IBeacon(newBeacon).implementation()),
+            ""ERC1967: beacon implementation is not a contract""
+        );
+        StorageSlot.getAddressSlot(_BEACON_SLOT).value = newBeacon;
+    }
+}
+
+contract BeaconProxy is Proxy, ERC1967Upgrade {
+
+    constructor(address beacon, bytes memory data) payable {
+        assert(_BEACON_SLOT == bytes32(uint256(keccak256(""eip1967.proxy.beacon"")) - 1));
+        _upgradeBeaconToAndCall(beacon, data, false);
+    }
+
+    function _beacon() internal view virtual returns (address) {
+        return _getBeacon();
+    }
+
+    function _implementation() internal view virtual override returns (address) {
+        return IBeacon(_getBeacon()).implementation();
+    }
+
+    function _setBeacon(address beacon, bytes memory data) internal virtual {
+        _upgradeBeaconToAndCall(beacon, data, false);
+    }
+}","Let's conduct a detailed security audit by analyzing each function and identifying potential vulnerabilities and logic issues that may lead to loss of funds. The provided code consists of several smart contracts and a library. We’ll analyze each component independently.
+
+### Analysis of `Proxy` Contract
+
+1. **_delegate Function:**
+    - **Issue**: There’s no access control on the `_delegate`. Malicious actors could potentially exploit this if the caller has the ability to delegate calls to arbitrary contracts, leading to data and fund theft.
+    - **Mitigation**: Implement access control mechanisms to restrict who can call delegate functions.
+
+2. **_fallback and receive Functions:**
+    - **Issue**: Both fallback and receive functions call `_fallback()`, which can potentially lead to re-entrancy attacks on other contracts. This is especially concerning if the delegated contract handles value transfers.
+    - **Mitigation**: Ensure state changes or value transfers are completed before any calls to external contracts.
+
+3. **_beforeFallback Function:**
+    - **Issue**: This is an empty function that can be overridden. Without specific checks or conditions, this could allow unguarded state changes before executing a fallback.
+    - **Mitigation**: Implement guard conditions or checks here to modify or reject the fallback calls based on the state of the contract.
+
+### Analysis of `StorageSlot` Library
+
+- The `StorageSlot` library provides methods to manage storage slots directly. 
+- **General Opinion**: Use of assembly to manipulate slots is generally safe if handled properly, but does pose risks when interacting incorrectly with storage. Care must be taken to avoid overwriting values unintentionally. 
+- Also, this library does not include any access control or validation mechanisms that can lead to unintended vulnerabilities if misused.
+
+### Analysis of `ERC1967Upgrade` Contract
+
+1. **Upgrade Mechanism:**
+    - **Issues**:
+        - `_setImplementation` doesn't include a mechanism to prevent upgrades if the implementation isn't properly verified as smart contract (though it does check).
+        - `emit Upgraded(newImplementation);` triggers before ANY checks that could relate to the integrity of the new implementation.
+    - **Mitigation**: Always perform checks before state changes and ensure old implementations can be reverted to when necessary.
+
+2. **Rollback Mechanism:**
+    - The rollback mechanism uses a boolean state variable to confirm whether an upgrade can continue.
+    - **Issue**: No check is performed after the `_setImplementation` to revert if the upgrade fails. This can lead to the contract being stuck in a faulty state.
+    - **Mitigation**: Introduce a solid mechanism to revert to the previous state if an upgrade fails.
+
+3. **Event Emissions:**
+    - The event emitted does not provide enough context; specifically, the events emitted do not include the old value/state.
+    - **Mitigation**: Consider adding old values to the events emitted for better tracking of state changes.
+
+4. **Beacon Upgrade Logic:**
+    - The `_upgradeBeaconToAndCall` function checks for contracts, but mishandling here can still lead to contract calls failing without reverting properly. 
+
+### Analysis of `BeaconProxy` Contract
+
+1. **Constructor:**
+    - The constructor asserts a constant value against a specific address. 
+    - **Issue**: If the expected values are incorrect, contracts can become unusable after deployment.
+    - **Mitigation**: Instead of assert, ensure validations are in place and revert with meaningful messages.
+
+2. **Beacon Pattern:**
+    - Implementation through beacon mechanism is not flexible if the implementation contract does not adhere to expected behavior, as there is no control over versioning externally.
+    - **Issue**: A malicious beacon can lead to arbitrary code execution if upgraded improperly.
+    - **Mitigation**: Enforce strict governance around any upgrades, including requiring consensus from multiple parties.
+
+3. **Redundant Beacon Calls:**
+    - The `beacon` is set without checks for a legitimate contract.
+    - **Issue**: If a non-contract address is passed or if the logic in the `IBeacon` interface is invalid, it can lead to failures.
+    - **Mitigation**: Ensure contracts addressing are verified to be initialized and functional.
+
+### Conclusion and Recommendations
+- **General Recommendations**:
+    - Implement access control across functions that update states, particularly for delegation and upgrade functions.
+    - Protect against re-entrancy wherever external calls occur.
+    - Use more descriptive error messages for reverts to make debugging easier for developers.
+    - Ensure all external contracts and interfaces are validated properly before calls.
+    - Perform comprehensive testing, including unit tests for all potential paths and adverse conditions.
+    - Consider introducing a comprehensive upgrade mechanism with a multi-signature approach to limit unauthorized changes.
+
+This contract is mostly robust but could be made significantly safer with the recommended mitigations in place to prevent potential exploits and vulnerabilities.","Of course! Let's analyze each function in the provided Solidity smart contracts independently, paying attention to potential vulnerabilities, logic issues, and overall security considerations.
+
+### Proxy Contract
+
+1. **_delegate(address implementation)**
+   - **Description**: Uses low-level delegatecall to forward the call to the implementation.
+   - **Issues**:
+     - **Access Control**: There’s no access control. Anyone can call `_delegate`, leading to potential misuse.
+     - **Delegatecall Risks**: If `implementation` is malicious or contains serious bugs, it can manipulate the storage of the caller, leading to potential re-entrancy or state destruction.
+   - **Mitigation**: Introduce access control to restrict who can call this function.
+
+2. **_implementation()**
+   - **Description**: Abstract function intended to return the implementation address.
+   - **Issues**:
+     - **Incomplete Implementation**: Without an override in derived contracts, it will not provide the correct implementation address.
+   - **Mitigation**: Ensure derived contracts implement this function correctly.
+
+3. **_fallback()**
+   - **Description**: Calls `_beforeFallback` and then `_delegate`.
+   - **Issues**:
+     - **Reentrancy Attack**: If the delegated contract invokes the fallback mechanism of this contract recursively, it may lead to unexpected behavior or state corruption.
+   - **Mitigation**: Implement a reentrancy guard pattern by using a mutex or state check before making the delegate call.
+
+4. **fallback () external payable**
+   - **Issues**:
+     - **No Access Restriction or State Change Handling**: Like `_fallback`, this can cause re-entrancy or unintended state changes if contracts are designed poorly or if external calls perform harmful operations.
+   - **Mitigation**: Ensure that any state changes take place before the external call is made. Implement security checks to restrict calls.
+
+5. **receive () external payable**
+   - **Description**: Similar to fallback but specifically handles plain Ether transfers.
+   - **Issues**:
+     - **Similar to Fallback**: Exposes the contract to the same issues as the fallback function, primarily related to re-entrancy.
+   - **Mitigation**: Follow the same recommendations as for the fallback function.
+
+6. **_beforeFallback()**
+   - **Description**: Can be overridden in derived contracts.
+   - **Issues**:
+     - **No Implementation or Checks**: By default, it does nothing, exposing future implementations to introduce dangerous logic without restrictions.
+   - **Mitigation**: If overridden, ensure that it preserves necessary checks or behavior critical to contract integrity.
+
+---
+
+### StorageSlot Library
+
+1. **getAddressSlot(bytes32 slot)**
+   - **Description**: Returns an AddressSlot struct at the specified storage slot.
+   - **Issues**: 
+     - **Direct Storage Manipulation**: Direct manipulation of storage slots can lead to unexpected issues if slots are mismanaged.
+   - **Mitigation**: Ensure library users are aware of the risks of manual slot setting to prevent overwriting unintended storage locations. This library should be used only by developers who understand the implications.
+
+2. **getBooleanSlot(bytes32 slot)**, **getBytes32Slot(bytes32 slot)**, **getUint256Slot(bytes32 slot)**
+   - **Description**: Similar to `getAddressSlot`, but for other types.
+   - **Issues**:
+     - **Same as Above**: All direct storage manipulations pose risks if not managed carefully by the user of this library.
+   - **Mitigation**: Reinforce documentation and usage guidelines.
+
+---
+
+### ERC1967Upgrade Contract
+
+1. **_getImplementation()**
+   - **Description**: Retrieves the current implementation address.
+   - **Issues**: None directly, but relies on the storage correctness.
+   - **Mitigation**: Ensure proper testing of underlying storage mechanisms.
+
+2. **_setImplementation(address newImplementation)**
+   - **Description**: Sets the implementation address after checks.
+   - **Issues**:
+     - **No Emission of Events on Failure**: A failed call should emit relevant events for debugging purposes.
+     - **Reliance on isContract Check**: If a non-contract address is passed, further issues can arise during a delegatecall.
+   - **Mitigation**: Emit an event indicating the failure, and confirm the address is a contract before setting it.
+
+3. **_upgradeTo(address newImplementation)**
+   - **Description**: Upgrades to a new implementation.
+   - **Issues**:
+     - **Same concerns as _setImplementation** and potential lack of rollback if the upgrade doesn't work as expected.
+   - **Mitigation**: Needs thorough validation and optional rollback mechanisms or checks.
+
+4. **_upgradeToAndCall(address newImplementation, bytes memory data, bool forceCall)**
+   - **Description**: Upgrades and calls the new implementation.
+   - **Issues**:
+     - **Order of Operations**: The emit statement executes before any state change or confirmation on successful call.
+   - **Mitigation**: Check for successful calls before emitting an upgrade event; otherwise, revert potential state changes.
+
+5. **_upgradeToAndCallSecure(address newImplementation, bytes memory data, bool forceCall)**
+   - **Description**: Secured upgrade function with rollback capability.
+   - **Issues**:
+     - **Potential Failure on First Call**: If the initial call fails, the implementation won't be reset.
+     - **Use of `rollbackTesting` which might produce false results** if mismanaged.
+   - **Mitigation**: Include stronger checks and state resets in case of first call failures.
+
+6. **_upgradeBeaconToAndCall(address newBeacon, bytes memory data, bool forceCall)**
+   - **Description**: Upgrades beacon and then calls the implementation from it.
+   - **Issues**: Similar to previous upgrade functions, expose to risks in external calls.
+   - **Mitigation**: Validate the new beacon's contract address comprehensively before any operations.
+
+7. **Administrative Functions (_getAdmin, _setAdmin, _changeAdmin)**
+   - **Description**: Functions to manage the administrator of the contract.
+   - **Issues**:
+     - **No Multi-Signature Requirements**: If setup fails, malicious actors can control the contract.
+   - **Mitigation**: Introduce a multi-signature pattern or time locking mechanism on admin changes.
+
+---
+
+### BeaconProxy Contract
+
+1. **Constructor**
+   - **Description**: Initializes the contract with a beacon and optional data.
+   - **Issues**:
+     - **Assert statement can lead to contract deployment failure**.
+     - **No protection if the beacon contract is invalid**.
+   - **Mitigation**: Provide clear error messages and validations on beacon correctness.
+
+2. **_beacon()**
+   - **Description**: Getter for the beacon address.
+   - **Issues**: No direct issues, but depends on the correct implementation of storage.
+   - **Mitigation**: Ensure consistent and proper checks on storage values.
+
+3. **_implementation()**
+   - **Description**: Retrieves the implementation from the beacon.
+   - **Issues**: If the beacon's behavior is flawed, this may lead to failures or unexpected actions.
+   - **Mitigation**: Use robust checks on the beacon's consistency and behavior.
+
+4. **_setBeacon(address beacon, bytes memory data)**
+   - **Description**: Sets a new beacon and calls the new implementation.
+   - **Issues**:
+     - **Lack of Validation**: Missing checks to confirm the new beacon contract is valid.
+     - **Order of Events can lead to state issues**.
+   - **Mitigation**: Ensure comprehensive validation of the given beacon and related contract calls.
+
+### Overall Summary
+Most functions have potential security issues related to access control, order of operations, re-entrancy, and external call validation. Careful consideration of these factors during implementation, guidance for developers using the library, and rigorous testing can help increase the contract's security substantially. 
+
+Ensure the implementation of mitigations for each critical issue to minimize the risks associated with smart contract vulnerabilities."

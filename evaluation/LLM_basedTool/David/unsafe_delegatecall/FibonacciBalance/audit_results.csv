@@ -1,0 +1,219 @@
+Contract Code,Stage 1 Audit Result,Stage 2 Audit Result
+"/*
+ * @source: https://github.com/sigp/solidity-security-blog
+ * @author: Suhabe Bugrara
+ * @vulnerable_at_lines: 31,38
+ */
+
+//added pragma version
+pragma solidity ^0.4.0;
+
+contract FibonacciBalance {
+
+    address public fibonacciLibrary;
+    // the current fibonacci number to withdraw
+    uint public calculatedFibNumber;
+    // the starting fibonacci sequence number
+    uint public start = 3;
+    uint public withdrawalCounter;
+    // the fibonancci function selector
+    bytes4 constant fibSig = bytes4(sha3(""setFibonacci(uint256)""));
+
+    // constructor - loads the contract with ether
+    constructor(address _fibonacciLibrary) public payable {
+        fibonacciLibrary = _fibonacciLibrary;
+    }
+
+    function withdraw() {
+        withdrawalCounter += 1;
+        // calculate the fibonacci number for the current withdrawal user
+        // this sets calculatedFibNumber
+        // <yes> <report> unsafe delegatecall
+        require(fibonacciLibrary.delegatecall(fibSig, withdrawalCounter));
+        msg.sender.transfer(calculatedFibNumber * 1 ether);
+    }
+
+    // allow users to call fibonacci library functions
+    function() public {
+        // <yes> <report> unsafe delegatecall
+        require(fibonacciLibrary.delegatecall(msg.data));
+    }
+}
+
+// library contract - calculates fibonacci-like numbers;
+contract FibonacciLib {
+    // initializing the standard fibonacci sequence;
+    uint public start;
+    uint public calculatedFibNumber;
+
+    // modify the zeroth number in the sequence
+    function setStart(uint _start) public {
+        start = _start;
+    }
+
+    function setFibonacci(uint n) public {
+        calculatedFibNumber = fibonacci(n);
+    }
+
+    function fibonacci(uint n) internal returns (uint) {
+        if (n == 0) return start;
+        else if (n == 1) return start + 1;
+        else return fibonacci(n - 1) + fibonacci(n - 2);
+    }
+}
+","The provided Solidity contract consists of two parts: the main contract `FibonacciBalance` and the library contract `FibonacciLib`. Below are detailed findings from an audit, highlighting potential vulnerabilities, especially focusing on critical issues that may lead to loss of funds.
+
+### Security Audit Findings
+
+#### 1. **Version and Compiler**
+- The contract specifies `pragma solidity ^0.4.0`. The 0.4.x series of Solidity has many known issues and vulnerabilities. It is recommended to use a more recent version of Solidity that has improved security features.
+
+#### 2. **delegatecall Vulnerability**
+- **Lines of Concern**: Lines inside both `withdraw` and the fallback function.
+- **Issue**: The use of `delegatecall` allows the caller to execute code from another contract in the context of the calling contract, which can manipulate its state. This creates a serious security risk, especially if the library is controlled by a malicious actor, who can change the state or steal funds.
+- **Risk**: If `fibonacciLibrary` points to a malicious contract, `delegatecall` can enable arbitrary code execution, leading to loss of user's balance.
+  
+#### 3. **Fibonacci Calculation Logic**
+- **Issue**: The `fibonacci` function is recursive and can lead to high gas consumption and potential out-of-gas errors for large `n`. This also creates a risk of logical errors leading to profit denial for users.
+- **Risk**: Users may not be able to withdraw their funds if the gas limit is reached during the calculation, leading to a denial of service.
+
+#### 4. **Lack of Access Control**
+- There is no access control in the `withdraw` function. Any caller can trigger it, and the withdrawal will just depend on the `withdrawalCounter`, which is incremented regardless of who calls the function. 
+- **Risk**: An attacker can repeatedly call the withdraw function, leading to fund depletion.
+
+#### 5. **Absence of SafeMath**
+- It appears the code does not utilize SafeMath for arithmetic operations, which can prevent integer overflows and underflows.
+- **Risk**: An overflow in the `withdrawalCounter` could reset it, which may allow malicious users to exploit the reset and withdraw more funds than intended.
+
+#### 6. **Owner Manipulation**
+- There’s no mechanism to control ownership or changes to the `fibonacciLibrary`. If it is set once in the constructor, it cannot be changed, but if a malicious address gets set during contract construction, it can not be easily corrected.
+
+#### 7. **Information Disclosure in Fallback**
+- The fallback function allows calling any arbitrary function on the library without any input validation.
+- **Risk**: An attacker could exploit this to gain information about the internal state of the library or manipulate it.
+
+### Summary of Issues
+- **Critical Delegatecall Vulnerability**: Allowing a malicious contract to exploit funds.
+- **Recursive Fibonacci Function**: High gas costs leading to potential denial of service.
+- **Lack of Access Control**: Enables fund withdrawal by anyone.
+- **Integer Overflow/Underflow Risk**: Potential misuse due to arithmetic operations without SafeMath.
+- **Insecure Fallback**: Lack of restrictions that may lead to arbitrary code execution.
+
+### Recommendations
+1. **Upgrade Solidity Version**: Use a more recent stable version of Solidity with improvements to security and features.
+2. **Replace `delegatecall`**: Avoid using it unless absolutely necessary. Prefer function calls to external contracts where possible.
+3. **Implement Access Control**: Ensure that only authorized users can withdraw funds.
+4. **Implement SafeMath**: Utilize the SafeMath library to protect against overflow and underflow.
+5. **Revise Fibonacci Logic**: Consider more efficient algorithms to calculate Fibonacci numbers to avoid gas issues.
+6. **Fallback Function Security**: Avoid exposing arbitrary calls through the fallback function. Ensure input validation mechanisms are in place.
+
+By implementing these recommendations, the security posture of the contract can be significantly improved, reducing the risk of fund loss.","Certainly! Let's go through each function in the `FibonacciBalance` and `FibonacciLib` contracts one by one, analyzing them for security vulnerabilities and logic issues.
+
+### `FibonacciBalance` Contract
+
+#### 1. **Constructor**
+```solidity
+constructor(address _fibonacciLibrary) public payable {
+    fibonacciLibrary = _fibonacciLibrary;
+}
+```
+**Audit**:
+- **Issue**: The constructor does not validate the address of `_fibonacciLibrary`. If an invalid address or a contract address that could be controlled by an attacker is passed, it can lead to vulnerabilities later in the contract.
+  
+**Recommendation**: Add a check to ensure that `_fibonacciLibrary` is a valid contract address:
+```solidity
+require(_fibonacciLibrary != address(0), ""Invalid library address"");
+```
+
+---
+
+#### 2. **withdraw function**
+```solidity
+function withdraw() {
+    withdrawalCounter += 1;
+    require(fibonacciLibrary.delegatecall(fibSig, withdrawalCounter));
+    msg.sender.transfer(calculatedFibNumber * 1 ether);
+}
+```
+**Audit**:
+- **Delegatecall Vulnerability**: As noted earlier, using `delegatecall` is dangerous. An attacker can control the implementation of a library's function and manipulate the state or funds.
+- **Lack of Access Control**: This function can be called by anyone. This could allow malicious users to repeatedly call this function, draining funds.
+- **Arithmetic Issues**: The line `msg.sender.transfer(calculatedFibNumber * 1 ether)` inherently assumes that `calculatedFibNumber` will be a positive value. If not, this could lead to unintended behaviors.
+
+**Recommendation**:
+- Implement access control to restrict who can call `withdraw`.
+- Add checks to ensure `calculatedFibNumber` is properly initialized and greater than zero before transferring.
+- Consider using a more secure withdrawal pattern, such as using Pull over Push.
+
+---
+
+#### 3. **Fallback Function**
+```solidity
+function() public {
+    require(fibonacciLibrary.delegatecall(msg.data));
+}
+```
+**Audit**:
+- **Delegatecall Safety**: Various arbitrary methods can be called on the `fibonacciLibrary`, potentially leading to unauthorized changes to contract state or fund loss.
+- **Undefined Behavior**: If `msg.data` points to a non-existent function in the library, it will simply fail without any information communicated back to the sender.
+
+**Recommendation**:
+- Remove or restrict the use of the fallback function. If functionality is required, consider implementing strict input validation.
+- Only allow certain functions to be called explicitly rather than allowing any arbitrary function call.
+
+---
+
+### `FibonacciLib` Contract
+
+#### 4. **setStart function**
+```solidity
+function setStart(uint _start) public {
+    start = _start;
+}
+```
+**Audit**:
+- **Lack of Access Control**: Anyone can call `setStart`, which would modify the state variable `start`. This can alter the sequence starting point for all users.
+  
+**Recommendation**: Add an access control modifier to restrict who can call this function, such as an `onlyOwner` modifier.
+
+---
+
+#### 5. **setFibonacci function**
+```solidity
+function setFibonacci(uint n) public {
+    calculatedFibNumber = fibonacci(n);
+}
+```
+**Audit**:
+- **Input Validation**: There is no validation on `n`. Users could call this function with an excessively high value, causing extreme gas consumption and a potential denial of service.
+  
+**Recommendation**: Add a restriction on the input value:
+```solidity
+require(n < SOME_MAX_VALUE, ""Input too large"");
+```
+- **Calculate Fib**: Consider returning the Fibonacci number without causing stack overflows for large values through iterative methods instead of recursion.
+
+---
+
+#### 6. **fibonacci function**
+```solidity
+function fibonacci(uint n) internal returns (uint) {
+    if (n == 0) return start;
+    else if (n == 1) return start + 1;
+    else return fibonacci(n - 1) + fibonacci(n - 2);
+}
+```
+**Audit**:
+- **Recursion Risk**: This function uses recursion which can lead to excessive gas costs and stack overflow errors with larger inputs. The maximum recursion depth for Ethereum smart contracts should be avoided.
+- **Non-constant Function**: The function is defined as `internal` which allows state changes, but it should be `pure` if no state variables are altered, thus giving a clearer indication of its functionality.
+
+**Recommendation**: Rewrite the Fibonacci calculation to use an iterative approach to prevent stack overflow. It is also advisable to change its visibility to `pure`.
+
+### Overall Recommendations
+
+- **Upgrade Solidity Version**: Upgrade the contract to a newer Solidity version for better security and features.
+- **Implement Unit Testing**: Ensure all functions are tested thoroughly with various attack vectors and edge cases to uncover potential misuses.
+- **Utilize Design Patterns**: Consider more secure design patterns, such as the Checks-Effects-Interactions pattern or using the pull over push strategy for fund transfers.
+- **Conduct a Formal Audit**: Consider having the contract audited by a professional or utilize tools specifically meant for detecting vulnerabilities in Solidity contracts. 
+
+By following these recommendations on a function-by-function basis, you can significantly enhance the contract's security and reliability."

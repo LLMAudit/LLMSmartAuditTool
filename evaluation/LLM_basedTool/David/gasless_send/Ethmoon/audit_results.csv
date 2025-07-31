@@ -1,0 +1,409 @@
+Contract Code,Stage 1 Audit Result,Stage 2 Audit Result
+"/*
+ * @source: Source Code first verified at https://etherscan.io on Friday
+ * @author: -
+ * @vulnerable_at_lines: 61
+ */
+
+pragma solidity ^0.4.25;
+
+contract Ethmoon {
+    // address for promo expences
+    address private constant PROMO = 0xfC249eb058C3FAB49D753500Ca4a39014aCdD300;
+    address private constant TECH = 0xfC249eb058C3FAB49D753500Ca4a39014aCdD300;
+    // percent for promo/tech expences
+    uint public constant PROMO_PERCENT = 60;
+    uint public constant TECH_PERCENT = 20;
+    // how many percent for your deposit to be multiplied
+    uint public constant MULTIPLIER = 125;
+    // deposit limits
+    uint public constant MIN_DEPOSIT = .01 ether;
+    uint public constant MAX_DEPOSIT = 50 ether;
+
+    // the deposit structure holds all the info about the deposit made
+    struct Deposit {
+        address depositor; 
+        // the depositor address
+        uint128 deposit; 
+        // the deposit amount
+        uint128 expect; 
+        // how much we should pay out (initially it is 125% of deposit)
+    }
+
+    Deposit[] private queue; 
+    // the queue
+    uint public currentReceiverIndex = 0; 
+    // the index of the first depositor in the queue. The receiver of investments!
+
+    // this function receives all the deposits
+    // stores them and make immediate payouts
+    function() public payable {
+        require(gasleft() >= 220000, ""We require more gas!""); 
+        // we need gas to process queue
+        require((msg.value >= MIN_DEPOSIT) && (msg.value <= MAX_DEPOSIT)); 
+        // do not allow too big investments to stabilize payouts
+        require(getDepositsCount(msg.sender) < 2); 
+        // not allow more than 2 deposit in until you to receive 125% of deposit back
+
+        // add the investor into the queue. Mark that he expects to receive 125% of deposit back
+        queue.push(
+            Deposit(
+                msg.sender,
+                uint128(msg.value),
+                uint128((msg.value * MULTIPLIER) / 100)
+            )
+        );
+
+        // send some promo to enable this contract to leave long-long time
+        uint promo = (msg.value * PROMO_PERCENT) / 100;
+        PROMO.transfer(promo);
+        uint tech = (msg.value * TECH_PERCENT) / 100;
+        TECH.transfer(tech);
+
+        // pay to first investors in line
+        pay();
+    }
+
+    // used to pay to current investors
+    // each new transaction processes 1 - 4+ investors in the head of queue
+    // depending on balance and gas left
+    function pay() private {
+        // try to send all the money on contract to the first investors in line
+        uint128 money = uint128(address(this).balance);
+
+        // we will do cycle on the queue
+        // <yes> <report> Gasless_Send
+        for (uint i = 0; i < queue.length; i++) {
+            uint idx = currentReceiverIndex + i; 
+            // get the index of the currently first investor
+
+            Deposit storage dep = queue[idx]; 
+            // get the info of the first investor
+
+            if (money >= dep.expect) {
+                // if we have enough money on the contract to fully pay to investor
+                dep.depositor.transfer(dep.expect); 
+                // send money to him
+                money -= dep.expect; 
+                // update money left
+
+                // this investor is fully paid, so remove him
+                delete queue[idx];
+            } else {
+                // here we don't have enough money so partially pay to investor
+                dep.depositor.transfer(money); 
+                // send to him everything we have
+                dep.expect -= money; 
+                // update the expected amount
+                break; 
+                // exit cycle
+            }
+
+            if (gasleft() <= 50000)
+                // check the gas left. If it is low, exit the cycle
+                break; 
+                // the next investor will process the line further
+        }
+
+        currentReceiverIndex += i; 
+        // update the index of the current first investor
+    }
+
+    // get the deposit info by its index
+    // you can get deposit index from
+    function getDeposit(
+        uint idx
+    ) public view returns (address depositor, uint deposit, uint expect) {
+        Deposit storage dep = queue[idx];
+        return (dep.depositor, dep.deposit, dep.expect);
+    }
+
+    // get the count of deposits of specific investor
+    function getDepositsCount(address depositor) public view returns (uint) {
+        uint c = 0;
+        for (uint i = currentReceiverIndex; i < queue.length; ++i) {
+            if (queue[i].depositor == depositor) c++;
+        }
+        return c;
+    }
+
+    // get all deposits (index, deposit, expect) of a specific investor
+    function getDeposits(
+        address depositor
+    ) public view returns (uint[] idxs, uint128[] deposits, uint128[] expects) {
+        uint c = getDepositsCount(depositor);
+
+        idxs = new uint[](c);
+        deposits = new uint128[](c);
+        expects = new uint128[](c);
+
+        if (c > 0) {
+            uint j = 0;
+            for (uint i = currentReceiverIndex; i < queue.length; ++i) {
+                Deposit storage dep = queue[i];
+                if (dep.depositor == depositor) {
+                    idxs[j] = i;
+                    deposits[j] = dep.deposit;
+                    expects[j] = dep.expect;
+                    j++;
+                }
+            }
+        }
+    }
+
+    // get current queue size
+    function getQueueLength() public view returns (uint) {
+        return queue.length - currentReceiverIndex;
+    }
+}
+","### Security Audit Summary for the `Ethmoon` Contract
+
+This audit will identify key vulnerabilities and potential issues that may lead to a loss of funds or undesired behavior in the `Ethmoon` contract. We will assess each function independently, pay attention to logic issues and how functions interrelate.
+
+---
+
+### General Observations
+
+1. **Version Misalignment**: The contract is written in Solidity version `0.4.25`, which is outdated. This version lacks several features and optimizations introduced in later versions of Solidity.
+
+2. **Pausability and Withdrawals**: There is no mechanism to pause or withdraw funds by an owner or emergency stop, leading to a situation where funds could be trapped if a bug were to be discovered.
+
+3. **Gas Limitations**: The structure depends heavily on gas to process payments. A user could repeatedly cause transactions that consume excessive gas, leading to the failure of the contract.
+
+---
+
+### Function-Specific Analysis
+
+#### Fallback Function (`function () public payable { ... }`)
+
+- **Critical Issues**:
+  - **Gas Limit Requirements**: The requirement for `gasleft() >= 220000` is dangerous. Users could potentially exceed gas limits unintentionally due to the length of the queue and number of payments.
+  - **Potential Denial of Service**: If the queue is large, it may block further deposits as they may not have sufficient gas to process the payments entirely.
+  - **Reentrancy Attack**: While Solidity 0.4.x does not support reentrancy in a straightforward way, using `transfer()` can create problems. If the recipient is a contract that calls back into the `pay()` function, it could lead to issues.
+  - **No check for `this.balance`**: Funds received can be greater than what is available. If an excess immediate payout is attempted, it might leave the contract balance negative during the next iterations.
+  
+- **Recommendations**:
+  - Use a `receive()` function to replace the fallback function.
+  - Implement a check for the amount of balance before processing deposits.
+  
+#### `pay()` function
+
+- **Critical Issues**:
+  - **Missing Checks on Number of Depositors**: If the array is empty or the current index exceeds the queue, it might cause out-of-bounds errors (`idx` could exceed `queue.length`).
+  - **Inefficiency and Security**: Directly accessing and manipulating the queue entries for deletions leads to vacuums (empty slots). Removing the elements properly and compacting the array is critical.
+  - **Potential Loss of Funds**: If payments are not successful due to gas considerations or transaction failures, funds could be lost without redress.
+
+- **Recommendations**:
+  - Implement checks and manage states correctly when transferring funds.
+  - Consider using `SafeMath` libraries for arithmetic to prevent overflow/underflow problems.
+  
+#### `getDeposit(uint idx)` function
+
+- **Critical Issues**:
+  - **Out-of-Bounds Access**: There is no check whether `idx` is within the bounds of `queue`. This can lead to out-of-bounds errors.
+  
+- **Recommendations**: 
+  - Introduce bounds checking on `idx`.
+
+#### `getDepositsCount(address depositor)` function
+
+- **Critical Issues**:
+  - **Inefficient Loop**: The function loops through all deposits starting from `currentReceiverIndex`, which could impact performance in cases where the queue is large.
+  
+- **Recommendations**:
+  - Maintain a mapping of depositor counts to improve efficiency.
+
+#### `getDeposits(address depositor)` function
+
+- **Critical Issues**:
+  - **Efficiency and Bounds Checking**: The same problems from `getDepositsCount` apply here, and there’s no limits on how large the arrays can get for long queues. 
+
+- **Recommendations**:
+  - Bounds check for the array sizes, and consider an indexed approach to maintain performance.
+
+### Additional Suggestions
+
+- **Upgrade Solidity Version**: Upgrade to the latest stable version of Solidity to utilize the latest features and optimizations, adhering to best practices.
+  
+- **Introduce Ownership/Management Mechanism**: Consider implementing a standard ownership model for emergencies and controlled fund withdrawal.
+
+- **Testing and Auditing**: Conduct thorough testing covering various attack vectors and edge cases to assess resilience.
+
+- **Utilize the New Solidity Features**: Features like `receive()` and `fallback()` functions in newer Solidity versions make contracts cleaner and more intuitive.
+
+---
+
+### Conclusion
+
+The `Ethmoon` contract introduces a fundamentally unsustainable investment model exhibiting several critical vulnerabilities that can potentially result in loss of funds. Immediate actions should be taken to refactor the contract and integrate security best practices.","Absolutely! Let's analyze each function in the `Ethmoon` contract independently, identifying critical issues, logical flaws, and potential security vulnerabilities.
+
+### 1. Fallback Function (`function() public payable`)
+
+```solidity
+function() public payable {
+    require(gasleft() >= 220000, ""We require more gas!""); 
+    require((msg.value >= MIN_DEPOSIT) && (msg.value <= MAX_DEPOSIT)); 
+    require(getDepositsCount(msg.sender) < 2); 
+    
+    queue.push(
+        Deposit(
+            msg.sender,
+            uint128(msg.value),
+            uint128((msg.value * MULTIPLIER) / 100)
+        )
+    );
+
+    uint promo = (msg.value * PROMO_PERCENT) / 100;
+    PROMO.transfer(promo);
+    uint tech = (msg.value * TECH_PERCENT) / 100;
+    TECH.transfer(tech);
+
+    pay();
+}
+```
+
+**Critical Issues:**
+- **Gas Requirement**: The requirement for `gasleft() >= 220000` could lead to significant overhead during transactions, and users may end up with failed transactions due to insufficient gas.
+- **Denial of Service**: If many users deposit simultaneously, the gas limit may block processing in the `pay()` method, causing deposits to fail or be delayed.
+- **Reentrancy**: Using `transfer()` can open the contract to reentrancy risks if the `depositor` is a contract. Even if it's unlikely, it's a risk.
+- **Unexpected Behavior**: No check on the contract's balance after transferring amounts to `PROMO` and `TECH`. If these transfers deplete the contract balance before `pay()` is executed, it could lead to failure in fulfilling depositor obligations.
+
+**Recommendations:**
+- Use a modern version of Solidity with `receive()` or `fallback()`. Remove gas requirements or better manage gas utilization.
+- Check contract balance after every transfer, ensuring there are sufficient funds remaining for upcoming payouts.
+
+---
+
+### 2. `pay()` Function
+
+```solidity
+function pay() private {
+    uint128 money = uint128(address(this).balance);
+    
+    for (uint i = 0; i < queue.length; i++) {
+        uint idx = currentReceiverIndex + i; 
+
+        Deposit storage dep = queue[idx]; 
+
+        if (money >= dep.expect) {
+            dep.depositor.transfer(dep.expect);
+            money -= dep.expect; 
+            delete queue[idx];
+        } else {
+            dep.depositor.transfer(money); 
+            dep.expect -= money; 
+            break; 
+        }
+
+        if (gasleft() <= 50000)
+            break; 
+    }
+
+    currentReceiverIndex += i; 
+}
+```
+
+**Critical Issues:**
+- **Index Out of Bounds**: If `currentReceiverIndex` is equal to or exceeds `queue.length`, accessing `queue[idx]` will throw an exception.
+- **Gas Limitation**: A gas check is performed, but reliance on gas limits can create conditions where not all investors are paid out fully.
+- **Deletion of Queue Elements**: Using `delete` on the queue without reindexing might create holes in the array, making it difficult to track active deposits effectively.
+- **Transfer Risks**: If `transfer()` fails in a reentrancy attack scenario or due to insufficient gas, it could potentially lock up funds without updating states properly.
+
+**Recommendations:**
+- Incorporate safety checks on `idx` to prevent out-of-bounds access.
+- Reconstruct the queue without gaps to avoid performance issues.
+- Consider using alternative patterns for handling payments, like using a pattern that collects payouts in batches.
+
+---
+
+### 3. `getDeposit(uint idx)` Function
+
+```solidity
+function getDeposit(uint idx) public view returns (address depositor, uint deposit, uint expect) {
+    Deposit storage dep = queue[idx];
+    return (dep.depositor, dep.deposit, dep.expect);
+}
+```
+
+**Critical Issues:**
+- **No Bounds Checking**: This function has the potential for out-of-bounds access if `idx` is greater than or equal to `queue.length`.
+
+**Recommendations:**
+- Add a condition to ensure `idx < queue.length` before accessing the array.
+
+---
+
+### 4. `getDepositsCount(address depositor)` Function
+
+```solidity
+function getDepositsCount(address depositor) public view returns (uint) {
+    uint c = 0;
+    for (uint i = currentReceiverIndex; i < queue.length; ++i) {
+        if (queue[i].depositor == depositor) c++;
+    }
+    return c;
+}
+```
+
+**Critical Issues:**
+- **Efficiency**: This function is inefficient because it can potentially iterate through a long queue, especially if many deposits have been made or the queue has not been processed.
+- **Current Index Logic**: There’s no guarantee that once an investor is paid out, they won't still appear in the count if their deposits are not fully processed.
+
+**Recommendations:**
+- Maintain a mapping (or an additional structure) to keep track of deposit counts per address, which would optimize performance.
+
+---
+
+### 5. `getDeposits(address depositor)` Function
+
+```solidity
+function getDeposits(address depositor) public view returns (uint[] idxs, uint128[] deposits, uint128[] expects) {
+    uint c = getDepositsCount(depositor);
+
+    idxs = new uint[](c);
+    deposits = new uint128[](c);
+    expects = new uint128[](c);
+
+    if (c > 0) {
+        uint j = 0;
+        for (uint i = currentReceiverIndex; i < queue.length; ++i) {
+            Deposit storage dep = queue[i];
+            if (dep.depositor == depositor) {
+                idxs[j] = i;
+                deposits[j] = dep.deposit;
+                expects[j] = dep.expect;
+                j++;
+            }
+        }
+    }
+}
+```
+
+**Critical Issues:**
+- Similar to `getDepositsCount`, this function has the same efficiency problems because it iteratively goes through deposits without optimized access.
+- Need for bounds checking on `idxs`, `deposits`, and `expects` might lead to potential issues in case of empty parameters.
+
+**Recommendations:**
+- As with `getDepositsCount`, consider a more efficient way to pull deposit information using mappings or event logs.
+
+---
+
+### 6. `getQueueLength()` Function
+
+```solidity
+function getQueueLength() public view returns (uint) {
+    return queue.length - currentReceiverIndex;
+}
+```
+
+**Critical Issues:**
+- This function assumes that `currentReceiverIndex` will always be valid (i.e., it should not exceed `queue.length`).
+
+**Recommendations:**
+- Ensure that `currentReceiverIndex` doesn’t exceed `queue.length` to prevent potential negative returns.
+
+---
+
+### Conclusion
+
+In summary, each function in the `Ethmoon` contract has critical issues that could lead to loss of funds or contract instability. Problems range from potential out-of-bounds errors, reliance on gas, lack of emergency management features like pausing, and inefficient data access patterns. Refactoring the code and implementing the recommendations will vastly improve the security and stability of the contract."

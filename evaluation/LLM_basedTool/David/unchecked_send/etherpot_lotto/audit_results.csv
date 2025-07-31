@@ -1,0 +1,402 @@
+Contract Code,Stage 1 Audit Result,Stage 2 Audit Result
+"/*
+ * @source: https://github.com/etherpot/contract/blob/master/app/contracts/lotto.sol
+ * @author: -
+ * @vulnerable_at_lines: 109,141
+ */
+
+//added pragma version
+pragma solidity ^0.4.0;
+
+ contract Lotto {
+
+     uint constant public blocksPerRound = 6800;
+     // there are an infinite number of rounds (just like a real lottery that takes place every week). `blocksPerRound` decides how many blocks each round will last. 6800 is around a day.
+
+     uint constant public ticketPrice = 100000000000000000;
+     // the cost of each ticket is .1 ether.
+
+     uint constant public blockReward = 5000000000000000000;
+
+     function getBlocksPerRound() constant returns(uint){ return blocksPerRound; }
+     function getTicketPrice() constant returns(uint){ return ticketPrice; }
+     //accessors for constants
+
+     struct Round {
+         address[] buyers;
+         uint pot;
+         uint ticketsCount;
+         mapping(uint=>bool) isCashed;
+         mapping(address=>uint) ticketsCountByBuyer;
+     }
+     mapping(uint => Round) rounds;
+     //the contract maintains a mapping of rounds. Each round maintains a list of tickets, the total amount of the pot, and whether or not the round was ""cashed"". ""Cashing"" is the act of paying out the pot to the winner.
+
+     function getRoundIndex() constant returns (uint){
+         //The round index tells us which round we're on. For example if we're on block 24, we're on round 2. Division in Solidity automatically rounds down, so we don't need to worry about decimals.
+
+         return block.number/blocksPerRound;
+     }
+
+     function getIsCashed(uint roundIndex,uint subpotIndex) constant returns (bool){
+         //Determine if a given.
+
+         return rounds[roundIndex].isCashed[subpotIndex];
+     }
+
+
+     function calculateWinner(uint roundIndex, uint subpotIndex) constant returns(address){
+         //note this function only calculates the winners. It does not do any state changes and therefore does not include various validitiy checks
+
+         var decisionBlockNumber = getDecisionBlockNumber(roundIndex,subpotIndex);
+
+         if(decisionBlockNumber>block.number)
+             return;
+         //We can't decided the winner if the round isn't over yet
+
+         var decisionBlockHash = getHashOfBlock(decisionBlockNumber);
+         var winningTicketIndex = decisionBlockHash%rounds[roundIndex].ticketsCount;
+         //We perform a modulus of the blockhash to determine the winner
+
+         var ticketIndex = uint256(0);
+
+         for(var buyerIndex = 0; buyerIndex<rounds[roundIndex].buyers.length; buyerIndex++){
+             var buyer = rounds[roundIndex].buyers[buyerIndex];
+             ticketIndex+=rounds[roundIndex].ticketsCountByBuyer[buyer];
+
+             if(ticketIndex>winningTicketIndex){
+                 return buyer;
+             }
+         }
+     }
+
+     function getDecisionBlockNumber(uint roundIndex,uint subpotIndex) constant returns (uint){
+         return ((roundIndex+1)*blocksPerRound)+subpotIndex;
+     }
+
+     function getSubpotsCount(uint roundIndex) constant returns(uint){
+         var subpotsCount = rounds[roundIndex].pot/blockReward;
+
+         if(rounds[roundIndex].pot%blockReward>0)
+             subpotsCount++;
+
+         return subpotsCount;
+     }
+
+     function getSubpot(uint roundIndex) constant returns(uint){
+         return rounds[roundIndex].pot/getSubpotsCount(roundIndex);
+     }
+
+     function cash(uint roundIndex, uint subpotIndex){
+
+         var subpotsCount = getSubpotsCount(roundIndex);
+
+         if(subpotIndex>=subpotsCount)
+             return;
+
+         var decisionBlockNumber = getDecisionBlockNumber(roundIndex,subpotIndex);
+
+         if(decisionBlockNumber>block.number)
+             return;
+
+         if(rounds[roundIndex].isCashed[subpotIndex])
+             return;
+         //Subpots can only be cashed once. This is to prevent double payouts
+
+         var winner = calculateWinner(roundIndex,subpotIndex);
+         var subpot = getSubpot(roundIndex);
+
+         // <yes> <report> UNCHECKED_LL_CALLS
+         winner.send(subpot);
+
+         rounds[roundIndex].isCashed[subpotIndex] = true;
+         //Mark the round as cashed
+     }
+
+     function getHashOfBlock(uint blockIndex) constant returns(uint){
+         return uint(block.blockhash(blockIndex));
+     }
+
+     function getBuyers(uint roundIndex,address buyer) constant returns (address[]){
+         return rounds[roundIndex].buyers;
+     }
+
+     function getTicketsCountByBuyer(uint roundIndex,address buyer) constant returns (uint){
+         return rounds[roundIndex].ticketsCountByBuyer[buyer];
+     }
+
+     function getPot(uint roundIndex) constant returns(uint){
+         return rounds[roundIndex].pot;
+     }
+
+     function() {
+         //this is the function that gets called when people send money to the contract.
+
+         var roundIndex = getRoundIndex();
+         var value = msg.value-(msg.value%ticketPrice);
+
+         if(value==0) return;
+
+         if(value<msg.value){
+             // <yes> <report> UNCHECKED_LL_CALLS
+             msg.sender.send(msg.value-value);
+         }
+         //no partial tickets, send a partial refund
+
+         var ticketsCount = value/ticketPrice;
+         rounds[roundIndex].ticketsCount+=ticketsCount;
+
+         if(rounds[roundIndex].ticketsCountByBuyer[msg.sender]==0){
+             var buyersLength = rounds[roundIndex].buyers.length++;
+             rounds[roundIndex].buyers[buyersLength] = msg.sender;
+         }
+
+         rounds[roundIndex].ticketsCountByBuyer[msg.sender]+=ticketsCount;
+         rounds[roundIndex].ticketsCount+=ticketsCount;
+         //keep track of the total tickets
+
+         rounds[roundIndex].pot+=value;
+         //keep track of the total pot
+
+     }
+
+ }
+","The provided Solidity contract represents a simple lottery system. However, it includes several security vulnerabilities and design issues that can lead to fund loss or other unintended consequences. Here’s a detailed review of each function, identifying vulnerabilities, especially logic issues.
+
+### Issues Identified:
+
+1. **OUTDATED SOLIDITY VERSION**
+   - The contract uses SPDX version `^0.4.0`, which is outdated and lacks many safety features, bug fixes, and optimizations introduced in later versions. Always use the latest stable version of Solidity.
+
+2. **Vulnerable to Reentrancy (Line 109)**
+   - The `cash` function calls `winner.send(subpot)`, which could lead to a reentrancy attack. An attacker could deploy a malicious contract as a winner that calls back into the Lotto contract before the balance is updated, leading to multiple payouts. Use `transfer` or `call` with proper checks to mitigate this risk.
+
+3. **Unchecked External Calls (Line 141)**
+   - Both the `cash` function and the fallback function use `send`, which does not check if the call succeeded. If the receiver is a contract that requires more gas, it could lead to undetectable failures. Switch to using `require` to ensure the transaction is confirmed.
+
+4. **Potential for Block Manipulation**
+   - The contract uses `block.number` for decision-making. Miners can manipulate block times, and a miner could potentially influence the selection of winners if they are aware of when their block will be mined.
+
+5. **Incomplete Winner Calculation Logic**
+   - The `calculateWinner` function does not handle potential issues with index calculations when querying for buyers. If no buyers exist, it could reach an undefined state which can cause transactions to fail unexpectedly.
+
+6. **Even Distribution of Tickets**
+   - The calculation of winners using modular arithmetic based on block hash can lead to predictable outcomes in a small number of cases (especially if the winner's tickets are known), allowing a potential attacker to influence outcomes.
+
+7. **Wrong Condition Handling in `cash` function** 
+   - Missing proper checks can allow multiple calls to `cash` for the same subpot, leading to double payouts. Even though it is designed to prevent cashing out more than once, the reentrancy can still cause issues before the `isCashed` flag is set.
+
+8. **Logic Issues in Fallback Function**
+   - The fallback function allows sending ether directly to the contract, which then does several operations based on the current round. If the contract is not in a valid state due to multiple concurrent transactions, it may lead to unpredictable behavior.
+
+9. **Insufficient Access Control**
+   - All public functions are accessible to anyone without restrictions. Consider restricting certain actions (like cashing out) to prevent unauthorized usage.
+
+10. **Gas Limit Attacks on `getBuyers`**
+    - The `getBuyers` function returns all buyers, and for a large number of buyers, it may fail with a gas limit error. This could prevent any state changes related to that round.
+
+11. **Potential Integer Overflows/Underflows**
+    - The contract does not use SafeMath or anything similar which leads to integer overflow/underflow vulnerabilities, especially in arithmetic operations on the `pot` and `ticketsCount`.
+
+### Summary of Recommendations:
+
+- Upgrade the Solidity version to the latest stable version to utilize better security features.
+- Change the `send` calls in both `cash` and the fallback function to handle failed transfers properly.
+- Introduce SafeMath for all arithmetic operations to handle overflows.
+- Implement reentrancy guards on critical functions, especially where ether transfers occur.
+- Add access control to sensitive functions (like cashing out).
+- Rethink the random number generation mechanism for winning ticket selection for better security against manipulation.
+- Handle logic more robustly to account for zero-ticket buyers and undefined states.
+
+By addressing these issues, the contract would be optimized for both security and functionality, reducing the risk of fund losses and unexpected behaviors.","Absolutely! I'll analyze each function in the provided contract independently to identify potential vulnerabilities and issues. 
+
+### 1. **getBlocksPerRound()**
+```solidity
+function getBlocksPerRound() constant returns(uint){ return blocksPerRound; }
+```
+**Issues:**
+- **No Issues Detected**: This function is simple and does not include complex logic or state changes. It only returns a constant value.
+
+### 2. **getTicketPrice()**
+```solidity
+function getTicketPrice() constant returns(uint){ return ticketPrice; }
+```
+**Issues:**
+- **No Issues Detected**: Similar to the previous function, it simply returns a constant value without any risks associated with it.
+
+### 3. **getRoundIndex()**
+```solidity
+function getRoundIndex() constant returns (uint){
+    return block.number / blocksPerRound;
+}
+```
+**Issues:**
+- **Predictable Outcome**: The use of `block.number` can become predictable over time, allowing potential attackers to estimate when their tickets may win based on block times. However, this may not be a critical vulnerability.
+
+### 4. **getIsCashed(uint roundIndex, uint subpotIndex)**
+```solidity
+function getIsCashed(uint roundIndex,uint subpotIndex) constant returns (bool){
+    return rounds[roundIndex].isCashed[subpotIndex];
+}
+```
+**Issues:**
+- **No Issues Detected**: This function accesses storage data and returns its value. There are no security concerns.
+
+### 5. **calculateWinner(uint roundIndex, uint subpotIndex)**
+```solidity
+function calculateWinner(uint roundIndex, uint subpotIndex) constant returns(address) {
+    var decisionBlockNumber = getDecisionBlockNumber(roundIndex, subpotIndex);
+
+    if(decisionBlockNumber > block.number)
+        return;
+    
+    var decisionBlockHash = getHashOfBlock(decisionBlockNumber);
+    var winningTicketIndex = decisionBlockHash % rounds[roundIndex].ticketsCount;
+
+    var ticketIndex = uint256(0);
+
+    for(var buyerIndex = 0; buyerIndex < rounds[roundIndex].buyers.length; buyerIndex++) {
+        var buyer = rounds[roundIndex].buyers[buyerIndex];
+        ticketIndex += rounds[roundIndex].ticketsCountByBuyer[buyer];
+
+        if(ticketIndex > winningTicketIndex) {
+            return buyer;
+        }
+    }
+}
+```
+**Issues:**
+- **No Return Value**: If there are no buyers, no address is returned, causing unexpected behavior. The return type is `address`, but there is no default return value.
+- **Predictable Winner Selection**: Winner selection depends on `blockhash`, which can be manipulated by miners. This could potentially allow miners to influence the outcome of the lottery.
+
+### 6. **getDecisionBlockNumber(uint roundIndex, uint subpotIndex)**
+```solidity
+function getDecisionBlockNumber(uint roundIndex, uint subpotIndex) constant returns (uint){
+    return ((roundIndex + 1) * blocksPerRound) + subpotIndex;
+}
+```
+**Issues:**
+- **No Issues Detected**: This function mathematically derives a block number based on inputs and has no observable risks.
+
+### 7. **getSubpotsCount(uint roundIndex)**
+```solidity
+function getSubpotsCount(uint roundIndex) constant returns(uint) {
+    var subpotsCount = rounds[roundIndex].pot / blockReward;
+
+    if(rounds[roundIndex].pot % blockReward > 0)
+        subpotsCount++;
+
+    return subpotsCount;
+}
+```
+**Issues:**
+- **Potential for Unexpected Values**: If `rounds[roundIndex].pot` has not been initialized, this may lead to an unexpected behavior.
+- **No Checks for Round Existence**: There should be checks to ensure `roundIndex` is valid before accessing it, to prevent out-of-bounds access.
+
+### 8. **getSubpot(uint roundIndex)**
+```solidity
+function getSubpot(uint roundIndex) constant returns(uint) {
+    return rounds[roundIndex].pot / getSubpotsCount(roundIndex);
+}
+```
+**Issues:**
+- **Division by Zero**: If `getSubpotsCount(roundIndex)` returns `0`, it will lead to a division by zero error.
+- **No Checks for Round Existence**: Similar to `getSubpotsCount`, there should be verification that `roundIndex` is valid.
+
+### 9. **cash(uint roundIndex, uint subpotIndex)**
+```solidity
+function cash(uint roundIndex, uint subpotIndex) {
+    var subpotsCount = getSubpotsCount(roundIndex);
+
+    if(subpotIndex >= subpotsCount)
+        return;
+
+    var decisionBlockNumber = getDecisionBlockNumber(roundIndex, subpotIndex);
+
+    if(decisionBlockNumber > block.number)
+        return;
+
+    if(rounds[roundIndex].isCashed[subpotIndex])
+        return;
+
+    var winner = calculateWinner(roundIndex, subpotIndex);
+    var subpot = getSubpot(roundIndex);
+
+    winner.send(subpot);
+    rounds[roundIndex].isCashed[subpotIndex] = true;
+}
+```
+**Issues:**
+- **Reentrancy Vulnerability**: The `send` call could allow an attacker to re-enter the contract and collect multiple payouts before the `isCashed` flag is set.
+- **Unchecked External Call**: The result of `winner.send(subpot)` should be checked to confirm the payout succeeded.
+- **Incorrect Logic for `subpotIndex`**: Without ensuring the round exists beforehand, an out-of-bounds access can occur.
+
+### 10. **getHashOfBlock(uint blockIndex)**
+```solidity
+function getHashOfBlock(uint blockIndex) constant returns(uint) {
+    return uint(block.blockhash(blockIndex));
+}
+```
+**Issues:**
+- **No Issues Detected**: The function simply returns a block hash and does not have any external dependency or state change.
+
+### 11. **getBuyers(uint roundIndex, address buyer)**
+```solidity
+function getBuyers(uint roundIndex, address buyer) constant returns (address[]) {
+    return rounds[roundIndex].buyers;
+}
+```
+**Issues:**
+- **Gas Limit Concerns**: This can produce large arrays and throw gas limit errors if the number of buyers is too high, potentially denying users access to essential information.
+
+### 12. **getTicketsCountByBuyer(uint roundIndex, address buyer)**
+```solidity
+function getTicketsCountByBuyer(uint roundIndex, address buyer) constant returns (uint) {
+    return rounds[roundIndex].ticketsCountByBuyer[buyer];
+}
+```
+**Issues:**
+- **No Issues Detected**: This function fetches a count based on address input and does not pose risks.
+
+### 13. **getPot(uint roundIndex)**
+```solidity
+function getPot(uint roundIndex) constant returns(uint) {
+    return rounds[roundIndex].pot;
+}
+```
+**Issues:**
+- **No Issues Detected**: Simple retrieval of the pot value, no observable vulnerabilities.
+
+### 14. **Fallback Function**
+```solidity
+function() {
+    var roundIndex = getRoundIndex();
+    var value = msg.value - (msg.value % ticketPrice);
+
+    if(value == 0) return;
+
+    if(value < msg.value) {
+        msg.sender.send(msg.value - value);
+    }
+
+    var ticketsCount = value / ticketPrice;
+    rounds[roundIndex].ticketsCount += ticketsCount;
+
+    if(rounds[roundIndex].ticketsCountByBuyer[msg.sender] == 0) {
+        var buyersLength = rounds[roundIndex].buyers.length++;
+        rounds[roundIndex].buyers[buyersLength] = msg.sender;
+    }
+
+    rounds[roundIndex].ticketsCountByBuyer[msg.sender] += ticketsCount;
+    rounds[roundIndex].ticketsCount += ticketsCount;
+    rounds[roundIndex].pot += value;
+}
+```
+**Issues:**
+- **Reentrancy Risk**: Similar to previous vulnerabilities, using `send` makes it susceptible to reentrancy attacks.
+- **Missing State Validation**: This function should check if the round exists before performing any action. Improper use could lead to invalid or unexpected states.
+- **Lack of Validation on msg.value**: Partial refunds are handled, but there should be checks to ensure that the refund process works correctly.
+- **Gas Limit Concerns**: The logic could lead to significant gas consumption if there are many buyers, especially with the line `rounds[roundIndex].buyers.length++`.
+
+### Summary:
+Through this detailed function-by-function review, various issues were identified, notably concerning security vulnerabilities, logical errors, and potential gas consumption problems. Specific attention should be paid to the fallback function and economic operations that directly involve ether transfer to mitigate risks of attacks such as reentrancy."

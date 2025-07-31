@@ -1,0 +1,244 @@
+Contract Code,Stage 1 Audit Result,Stage 2 Audit Result
+"/*
+ * @source: Source Code first verified at https://etherscan.io on Friday
+ * @author: -
+ * @vulnerable_at_lines: 43
+ */
+
+pragma solidity ^0.5.0;
+
+contract ProofHashes {
+    function bug_intou27() public {
+        uint8 vundflw = 0;
+        vundflw = vundflw - 10;
+        // underflow bug
+    }
+
+    event HashFormatSet(uint8 hashFunction, uint8 digestSize);
+
+    function bug_intou31() public {
+        uint8 vundflw = 0;
+        vundflw = vundflw - 10;
+        // underflow bug
+    }
+
+    event HashSubmitted(bytes32 hash);
+
+    // state functions
+
+    function _setMultiHashFormat(
+        uint8 hashFunction,
+        uint8 digestSize
+    ) internal {
+        // emit event
+        emit HashFormatSet(hashFunction, digestSize);
+    }
+
+    function bug_intou20(uint8 p_intou20) public {
+        uint8 vundflw1 = 0;
+        vundflw1 = vundflw1 + p_intou20; 
+        // overflow bug
+    }
+
+    function _submitHash(bytes32 hash) internal {
+        // emit event
+        emit HashSubmitted(hash);
+    }
+
+    function bug_intou32(uint8 p_intou32) public {
+        uint8 vundflw1 = 0;
+        vundflw1 = vundflw1 + p_intou32; 
+        // overflow bug
+    }
+
+    // <yes> <report> unsafe_suicide
+    function kill() onlyOwner {
+        suicide(owner);
+    }
+}
+","The provided smart contract has several issues that can lead to potential losses of funds, vulnerabilities, and incorrect logic. Here’s a detailed breakdown of each function, the identified vulnerabilities, and recommendations for improvement.
+
+### Audit Summary
+
+#### General Observations
+1. **Version Compatibility**: The contract is written in Solidity version 0.5.0, which has numerous security improvements in later versions. It is advisable to update the codebase to a more recent version, such as 0.8.x, where many common vulnerabilities are fixed by default.
+
+2. **Visibility and Function Modifiers**: Several functions lack visibility declarations (e.g., `public`, `internal`, etc.), which can lead to unintended access. The functions should have explicit visibility modifiers for clarity.
+
+3. **Access Control**: There’s a `kill` function that attempts to use the `suicide` function to send funds to `owner`, but the `onlyOwner` modifier isn't defined within the code snippet. Without this modifier being defined and used properly, unauthorized users may be able to call this function.
+
+---
+
+### Function-by-Function Analysis
+
+1. **Function: `bug_intou27` & `bug_intou31`**
+   - **Issues**: These functions include underflow bugs (subtracting from zero), which could lead to unexpected behavior and incorrect processing.
+   - **Impact**: Although they don't handle funds directly, if such logic is present in critical functions (like handling balances), it can lead to loss or manipulation of state.
+   - **Recommendation**: Use Solidity 0.8.x or add checks to prevent underflows (require conditions before performing subtraction).
+
+2. **Function: `_setMultiHashFormat`**
+   - **Issues**: This function emits an event, but there is no state management logic to actually set the hash format, so the contract state isn't modified.
+   - **Impact**: Misleading because it suggests that the hash format is being set when it isn’t. This can confuse users or developers leading to misassumptions about contract behavior.
+   - **Recommendation**: Implement logic to store the hash format in a state variable.
+
+3. **Function: `bug_intou20` & `bug_intou32`**
+   - **Issues**: These functions include overflow bugs while attempting to increase `vundflw1` with the passed parameters.
+   - **Impact**: Similar to the previous underflow issue, this can lead to incorrect state manipulation or unintended behaviors if used improperly in core logic.
+   - **Recommendation**: Again use Solidity 0.8.x, which has built-in checks, or manually introduce checks for overflow conditions using `require`.
+
+4. **Function: `_submitHash`**
+   - **Issues**: Just like `_setMultiHashFormat`, this function emits an event without changing any state.
+   - **Impact**: Potential misinterpretation of functionality.
+   - **Recommendation**: Create and persist a mapping or array to store submitted hashes.
+
+5. **Function: `kill`**
+   - **Issues**: This function is critical as it uses `suicide`, which permanently destroys the contract and sends all remaining Ether to the specified address. If `owner` is not established correctly (e.g., missing the `onlyOwner` modifier), the contract can be permanently destroyed by anyone.
+   - **Impact**: This function can lead to complete loss of control over the contract if improperly accessed or misused.
+   - **Recommendation**: Properly implement the `onlyOwner` modifier. Consider replacing `suicide` with `selfdestruct`, which is the modern equivalent in newer Solidity versions.
+
+---
+
+### Additional Recommendations
+- **Overall Code Management**: Use consistent and meaningful naming conventions to improve readability.
+- **Testing**: Implement extensive unit tests, especially around edge cases involving the underflow/overflow checks.
+- **Upgrade Solidity Version**: If possible, upgrade to Solidity 0.8.x to mitigate the impact of arithmetic operations mishandling with built-in overflow/underflow checks.
+- **Audit Access Control**: Implement and thoroughly test access controls for any critical functions.
+
+---
+
+### Conclusion
+The contract has several critical issues, particularly with underflow/overflow vulnerabilities and a lack of proper visibility and security measures that can lead to a loss of funds or functionalities. These should be addressed immediately, and the security of access control for functions should be prioritized. Further testing and an upgrade to a more secure version of Solidity are strongly recommended.","Certainly! Let's analyze each function of the `ProofHashes` contract independently, line by line, identifying vulnerabilities and issues that could lead to loss of funds or unintended behavior.
+
+### 1. Function: `bug_intou27`
+
+```solidity
+function bug_intou27() public {
+    uint8 vundflw = 0;
+    vundflw = vundflw - 10;
+    // underflow bug
+}
+```
+- **Critical Issues**:
+  - **Underflow**: This function will cause an underflow when it attempts to subtract 10 from 0, resulting in `vundflw` being assigned a value of 246 (due to wrapping in uint8). This could lead to unexpected behavior if this function's logic was tied to contract state or calculations.
+  
+- **Recommendations**:
+  - Implement checks before performing arithmetic operations.
+  - Upgrade to Solidity 0.8.x where underflow checks are built-in.
+
+---
+
+### 2. Function: `bug_intou31`
+
+```solidity
+function bug_intou31() public {
+    uint8 vundflw = 0;
+    vundflw = vundflw - 10;
+    // underflow bug
+}
+```
+- **Critical Issues**:
+  - **Underflow**: This function also has the same underflow issue as `bug_intou27`.
+  
+- **Recommendations**:
+  - Same as above; avoid underflow by implementing checks or using a more recent version of Solidity.
+
+---
+
+### 3. Function: `_setMultiHashFormat`
+
+```solidity
+function _setMultiHashFormat(
+    uint8 hashFunction,
+    uint8 digestSize
+) internal {
+    // emit event
+    emit HashFormatSet(hashFunction, digestSize);
+}
+```
+- **Critical Issues**:
+  - **No State Change**: This function emits an event but does not actually store or change any state variable that would affect the hash format. This can lead to confusion.
+  
+- **Recommendations**:
+  - Add state variables to actually store the `hashFunction` and `digestSize`.
+
+---
+
+### 4. Function: `bug_intou20`
+
+```solidity
+function bug_intou20(uint8 p_intou20) public {
+    uint8 vundflw1 = 0;
+    vundflw1 = vundflw1 + p_intou20; 
+    // overflow bug
+}
+```
+- **Critical Issues**:
+  - **Overflow**: If `p_intou20` is greater than 255, it will overflow when assigned to `vundflw1`, leading to incorrect values.
+  
+- **Recommendations**:
+  - Use checks like `require(vundflw1 + p_intou20 <= 255)` before addition or switch to a version of Solidity that prevents this overflow automatically.
+
+---
+
+### 5. Function: `_submitHash`
+
+```solidity
+function _submitHash(bytes32 hash) internal {
+    // emit event
+    emit HashSubmitted(hash);
+}
+```
+- **Critical Issues**:
+  - **No State Change**: This function likewise does not change any state or keep track of the submitted hashes.
+  
+- **Recommendations**:
+  - Introduce a state variable (e.g., a mapping or array) to store submitted hashes so that this function provides meaningful output.
+
+---
+
+### 6. Function: `bug_intou32`
+
+```solidity
+function bug_intou32(uint8 p_intou32) public {
+    uint8 vundflw1 = 0;
+    vundflw1 = vundflw1 + p_intou32; 
+    // overflow bug
+}
+```
+- **Critical Issues**:
+  - **Overflow**: This function has the same overflow issue as `bug_intou20`.
+  
+- **Recommendations**:
+  - Implement similar checks as recommended above, or upgrade the Solidity version to prevent overflows.
+
+---
+
+### 7. Function: `kill`
+
+```solidity
+function kill() onlyOwner {
+    suicide(owner);
+}
+```
+- **Critical Issues**:
+  - **Ownership Control Missing**: The `onlyOwner` modifier is referenced but not defined within the contract, which can lead to incomplete functionality if not implemented elsewhere.
+  - **Use of `suicide`**: This is an outdated function; using `selfdestruct` is the recommended approach in modern Solidity.
+  
+- **Recommendations**:
+  - Define and implement the `onlyOwner` modifier.
+  - Replace `suicide` with `selfdestruct`. Also, consider any implications of allowing the contract to self-destruct.
+
+---
+
+### Conclusion
+
+Each function in this smart contract has identified vulnerabilities and issues that can lead to the loss of funds or incorrect behavior. Key risks include:
+- Underflows/overflows in arithmetic.
+- The lack of meaningful state changes in functions designed to alter state.
+- Unclear access control for critical functions.
+
+### Suggested Actions
+1. **Upgrade Solidity**: Move to version 0.8.x for built-in overflow/underflow checks.
+2. **Implement State Management**: Ensure that functions that are meant to change state do so correctly.
+3. **Review Attention to Detail**: Ensure the presence of modifiers like `onlyOwner`.
+4. **Testing**: Rigorously test each function to ensure expected behaviors under all input scenarios."

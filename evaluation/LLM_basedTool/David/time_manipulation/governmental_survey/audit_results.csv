@@ -1,0 +1,181 @@
+Contract Code,Stage 1 Audit Result,Stage 2 Audit Result
+"/*
+ * @source: http://blockchain.unica.it/projects/ethereum-survey/attacks.html#governmental
+ * @author: -
+ * @vulnerable_at_lines: 27
+ */
+
+//added pragma version
+pragma solidity ^0.4.0;
+
+contract Governmental {
+  address public owner;
+  address public lastInvestor;
+  uint public jackpot = 1 ether;
+  uint public lastInvestmentTimestamp;
+  uint public ONE_MINUTE = 1 minutes;
+
+  function Governmental() {
+    owner = msg.sender;
+    if (msg.value<1 ether) throw;
+  }
+
+  function invest() {
+    if (msg.value<jackpot/2) throw;
+    lastInvestor = msg.sender;
+    jackpot += msg.value/2;
+    // <yes> <report> TIME_MANIPULATION
+    lastInvestmentTimestamp = block.timestamp;
+  }
+
+  function resetInvestment() {
+    if (block.timestamp < lastInvestmentTimestamp+ONE_MINUTE)
+      throw;
+
+    lastInvestor.send(jackpot);
+    owner.send(this.balance-1 ether);
+
+    lastInvestor = 0;
+    jackpot = 1 ether;
+    lastInvestmentTimestamp = 0;
+  }
+}
+
+contract Attacker {
+
+  function attack(address target, uint count) {
+    if (0<=count && count<1023) {
+      this.attack.gas(msg.gas-2000)(target, count+1);
+    }
+    else {
+      Governmental(target).resetInvestment();
+    }
+  }
+}
+","The provided smart contract contains several critical issues that can lead to loss of funds, including vulnerabilities related to reentrancy, time manipulation, and improper access control. Here is a detailed audit of the contract, examining each function independently and identifying potential vulnerabilities:
+
+### Overall Review
+- The contract is written in an old version of Solidity (`pragma solidity ^0.4.0`), which lacks many of the safety features introduced in later versions. It is highly recommended to upgrade to a more recent version (e.g., 0.8.x).
+
+### Function Reviews
+
+1. **Constructor: `function Governmental()`**
+   - **Issue**: The constructor tries to check `msg.value`, but it cannot receive ether because it is being incorrectly designed:
+     - The constructor cannot have a `msg.value` check as it does not accept any-value. If you wish to limit contracts to only be created with an investment, you should consider having a separate investment function that must be called immediately after the creation of the contract.
+
+2. **Investment Function: `function invest()`**
+   - **Issue: Reentrancy Vulnerability**: The use of `.send()` in the `resetInvestment` function when transferring ETH to `lastInvestor` opens the contract up to reentrancy attack. An attacker can exploit this by recursively calling the `resetInvestment` before the first invocation completes. This could lead to draining the funds:
+     ```solidity
+     lastInvestor.send(jackpot);
+     ```
+   - **Issue: Time Manipulation**: Since the function checks `block.timestamp` for controlling the flow (specifically, in `resetInvestment`), an attacker can manipulate the timestamp to their advantage by forcing the contract execution at a later time.
+   - **Logic Issue**: If `msg.value` is an improper value (less than half the jackpot), it throws an exception, which can lead to unexpected state changes if not handled gracefully. 
+
+3. **Reset Investment Function: `function resetInvestment()`**
+   - **Issue: Access Control**: This function can potentially be called by anyone, leading to unauthorized withdrawal of funds. It should require more stringent checks (like ensuring the caller is the `lastInvestor`).
+   - **Issue: Numeric Underflow/Overflow**: Although the use of fixed-point numbers is not a direct concern here, any arithmetic can overflow or underflow due to lack of safe math mechanisms. Effects can cascade for negative balances or extremely high balances exceeding the max award.
+
+4. **Attacker Contract: `contract Attacker`**
+   - **Issue: Recursive Call**: The `attack` function is designed to recursively call `resetInvestment` without fail. The contract relies on the ability to do so before any checks have been done on balance states or reset. This can continuously drain funds from the `Governmental` contract effectively.
+
+### Suggested Improvements
+
+1. **Upgrade Solidity Version**: Move to at least `^0.6.0` or the latest version (with better syntax and security features) and use built-in security measures against reentrancy like the `ReentrancyGuard`.
+
+2. **Proper Ether Management**: Instead of using low-level calls like `.send()`, use the newer pattern of checks-effects-interactions along with error handling using `require()`.
+
+3. **Ownership and Access Control**: Implement an ownership pattern (using the OpenZeppelin Ownable contract) to manage who has access to critical functions and fund withdrawals.
+
+4. **Time Locks**: Implement mechanisms to secure against premature withdrawals based on block timestamps.
+
+5. **Consider SafeMath**: Implement a library for safe arithmetic to avoid overflows/underflows issues as they are complex and can present a potential financial loss.
+
+6. **Event Logging**: Implement event logging for state changes and funds movement to allow external observers to trace activities easily for audit purposes.
+
+### Conclusion
+The smart contract presented is vulnerable to several significant issues and requires extensive reworking to improve its security model. It is highly recommended to adopt best practices, including proper access control, safe math, and automated testing, while also considering an upgrade to the latest Solidity version.","Certainly! Let's break down the contract's functions one by one to identify vulnerabilities, focusing on critical issues that could lead to fund loss:
+
+### 1. Constructor: `function Governmental()`
+
+```solidity
+function Governmental() {
+    owner = msg.sender;
+    if (msg.value < 1 ether) throw;
+}
+```
+
+#### Issues:
+- **Misleading Ether Expectation**: The constructor cannot accept ETH transfers since it doesn't utilize `payable`. In Solidity versions 0.4.x, constructors are non-payable by default, and thus using `msg.value` here won't behave as expected.
+- **State Initialization Failure**: If deploying the contract does not meet the `msg.value` condition, the deployment will throw an error, and the contract will not get initialized (although `owner` will be set). There’s no recovery or state clean-up, which could leave the contract in an undefined state.
+
+#### Recommendation:
+- Make the constructor `payable`. If the intention is to require a payment during the contract deployment, consider a different function for investment after deployment or enforce this in a more secure manner.
+
+### 2. Investment Function: `function invest()`
+
+```solidity
+function invest() {
+    if (msg.value < jackpot / 2) throw;
+    lastInvestor = msg.sender;
+    jackpot += msg.value / 2;
+    lastInvestmentTimestamp = block.timestamp;
+}
+```
+
+#### Issues:
+- **Reentrancy Vulnerability**: Although this function does not rely on ether transfer, the later `resetInvestment` that uses `send()` could allow an attacker to exploit an attack by manipulating `lastInvestor` in a subsequent call.
+- **Use of `throw`**: This is deprecated in later Solidity versions; while in the given version it does revert, it is better to use `require()` for clarity and to maintain gas usage.
+- **Potential for Abuse**: If an attacker can send a very small increment just above `jackpot/2`, they can manipulate the state without investing significantly.
+
+#### Recommendation:
+- Change to `require(msg.value >= jackpot / 2, ""Insufficient investment"");` to use proper error handling.
+- Ensure checks are made for potential abuse, possibly requiring the `msg.value` to be a proportion of `jackpot` rather than `>= jackpot / 2`.
+
+### 3. Reset Investment Function: `function resetInvestment()`
+
+```solidity
+function resetInvestment() {
+    if (block.timestamp < lastInvestmentTimestamp + ONE_MINUTE)
+        throw;
+
+    lastInvestor.send(jackpot);
+    owner.send(this.balance - 1 ether);
+
+    lastInvestor = 0;
+    jackpot = 1 ether;
+    lastInvestmentTimestamp = 0;
+}
+```
+
+#### Issues:
+- **Time Manipulation**: The reliance on `block.timestamp` makes this function vulnerable; miners can affect the timestamp, potentially allowing an attack.
+- **Reentrancy Vulnerability**: The call to `send()` is prone to reentrancy attacks. If `lastInvestor` is a malicious actor, they can exploit this call to drain funds.
+- **Access Control Issue**: There's no check to ensure that the function caller is the `lastInvestor` or the `owner`. Any user can call this function if the conditions are met.
+- **Logic Flaw**: The reset does not check if `jackpot` has sufficient funds; if the jackpot has been manipulated through `invest`, the contract could fail when trying to send this balance.
+
+#### Recommendation:
+- Implement `require(msg.sender == lastInvestor || msg.sender == owner, ""Unauthorized access"");` for proper authorization.
+- Use a checks-effects-interactions pattern to prevent reentrancy.
+- If possible, utilize SafeMath to handle the arithmetic safely.
+  
+### 4. Attacker Contract: `contract Attacker`
+
+```solidity
+function attack(address target, uint count) {
+    if (0 <= count && count < 1023) {
+        this.attack.gas(msg.gas - 2000)(target, count + 1);
+    } else {
+        Governmental(target).resetInvestment();
+    }
+}
+```
+
+#### Issues:
+- **Inducing a Reentrancy Attack**: This function is explicitly crafted to exploit the `resetInvestment()` function by repeatedly calling it before the original function call can complete, potentially draining the Governmental contract's funds.
+- **Gas Limit Manipulation**: The way this recursively calls itself may lead to gas limit issues, but could still cause the `resetInvestment` function to be called multiple times under certain conditions.
+
+#### Recommendation:
+- Strongly advise against the use of any function with such recursive calls. Redesign the contract such that there are no functions that could be exploited in this manner.
+  
+### Conclusion
+Each function in the `Governmental` contract presents unique vulnerabilities related to improper handling of ether, potential reentrancy, and misuse of block properties. Proper access control, safe mathematical operations, and reevaluation of the logic used to manage funds must be implemented to ensure contract integrity and security. Transitioning to a financial secure design paradigm is highly recommended to prevent potential exploits."

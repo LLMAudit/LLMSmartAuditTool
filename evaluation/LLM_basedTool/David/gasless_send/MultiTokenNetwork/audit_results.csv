@@ -1,0 +1,555 @@
+Contract Code,Stage 1 Audit Result,Stage 2 Audit Result
+"/*
+ * @source: https://capturetheether.com/challenges/lotteries/guess-the-random-number/
+ * @author: Steve Marx
+ * @vulnerable_at_lines: 237
+ */
+
+pragma solidity ^0.4.24;
+
+// File: openzeppelin-solidity/contracts/token/ERC20/ERC20Basic.sol
+
+/**
+ * @title ERC20Basic
+ * @dev Simpler version of ERC20 interface
+ * See https://github.com/ethereum/EIPs/issues/179
+ */
+contract ERC20Basic {
+    function totalSupply() public view returns (uint256);
+
+    function balanceOf(address _who) public view returns (uint256);
+
+    function transfer(address _to, uint256 _value) public returns (bool);
+
+    event Transfer(address indexed from, address indexed to, uint256 value);
+}
+
+// File: openzeppelin-solidity/contracts/token/ERC20/ERC20.sol
+
+/**
+ * @title ERC20 interface
+ * @dev see https://github.com/ethereum/EIPs/issues/20
+ */
+contract ERC20 is ERC20Basic {
+    function allowance(
+        address _owner,
+        address _spender
+    ) public view returns (uint256);
+
+    function transferFrom(
+        address _from,
+        address _to,
+        uint256 _value
+    ) public returns (bool);
+
+    function approve(address _spender, uint256 _value) public returns (bool);
+
+    event Approval(
+        address indexed owner,
+        address indexed spender,
+        uint256 value
+    );
+}
+
+// File: openzeppelin-solidity/contracts/ownership/Ownable.sol
+
+/**
+ * @title Ownable
+ * @dev The Ownable contract has an owner address, and provides basic authorization control
+ * functions, this simplifies the implementation of ""user permissions"".
+ */
+contract Ownable {
+    address public owner;
+
+    event OwnershipRenounced(address indexed previousOwner);
+    event OwnershipTransferred(
+        address indexed previousOwner,
+        address indexed newOwner
+    );
+
+    /**
+     * @dev The Ownable constructor sets the original `owner` of the contract to the sender
+     * account.
+     */
+    constructor() public {
+        owner = msg.sender;
+    }
+
+    /**
+     * @dev Throws if called by any account other than the owner.
+     */
+    modifier onlyOwner() {
+        require(msg.sender == owner);
+        _;
+    }
+
+    /**
+     * @dev Allows the current owner to relinquish control of the contract.
+     * @notice Renouncing to ownership will leave the contract without an owner.
+     * It will not be possible to call the functions with the `onlyOwner`
+     * modifier anymore.
+     */
+    function renounceOwnership() public onlyOwner {
+        emit OwnershipRenounced(owner);
+        owner = address(0);
+    }
+
+    /**
+     * @dev Allows the current owner to transfer control of the contract to a newOwner.
+     * @param _newOwner The address to transfer ownership to.
+     */
+    function transferOwnership(address _newOwner) public onlyOwner {
+        _transferOwnership(_newOwner);
+    }
+
+    /**
+     * @dev Transfers control of the contract to a newOwner.
+     * @param _newOwner The address to transfer ownership to.
+     */
+    function _transferOwnership(address _newOwner) internal {
+        require(_newOwner != address(0));
+        emit OwnershipTransferred(owner, _newOwner);
+        owner = _newOwner;
+    }
+}
+
+// File: openzeppelin-solidity/contracts/lifecycle/Pausable.sol
+
+/**
+ * @title Pausable
+ * @dev Base contract which allows children to implement an emergency stop mechanism.
+ */
+contract Pausable is Ownable {
+    event Pause();
+    event Unpause();
+
+    bool public paused = false;
+
+    /**
+     * @dev Modifier to make a function callable only when the contract is not paused.
+     */
+    modifier whenNotPaused() {
+        require(!paused);
+        _;
+    }
+
+    /**
+     * @dev Modifier to make a function callable only when the contract is paused.
+     */
+    modifier whenPaused() {
+        require(paused);
+        _;
+    }
+
+    /**
+     * @dev called by the owner to pause, triggers stopped state
+     */
+    function pause() public onlyOwner whenNotPaused {
+        paused = true;
+        emit Pause();
+    }
+
+    /**
+     * @dev called by the owner to unpause, returns to normal state
+     */
+    function unpause() public onlyOwner whenPaused {
+        paused = false;
+        emit Unpause();
+    }
+}
+
+// File: contracts/network/AbstractDeployer.sol
+
+contract AbstractDeployer is Ownable {
+    function title() public view returns (string);
+
+    function deploy(bytes data) external onlyOwner returns (address result) {
+        // solium-disable-next-line security/no-low-level-calls
+        require(address(this).call(data), ""Arbitrary call failed"");
+        // solium-disable-next-line security/no-inline-assembly
+        assembly {
+            returndatacopy(0, 0, 32)
+            result := mload(0)
+        }
+    }
+}
+
+// File: contracts/interface/IBasicMultiToken.sol
+
+contract IBasicMultiToken is ERC20 {
+    event Bundle(
+        address indexed who,
+        address indexed beneficiary,
+        uint256 value
+    );
+    event Unbundle(
+        address indexed who,
+        address indexed beneficiary,
+        uint256 value
+    );
+
+    function tokensCount() public view returns (uint256);
+
+    function tokens(uint i) public view returns (ERC20);
+
+    function bundleFirstTokens(
+        address _beneficiary,
+        uint256 _amount,
+        uint256[] _tokenAmounts
+    ) public;
+
+    function bundle(address _beneficiary, uint256 _amount) public;
+
+    function unbundle(address _beneficiary, uint256 _value) public;
+
+    function unbundleSome(
+        address _beneficiary,
+        uint256 _value,
+        ERC20[] _tokens
+    ) public;
+
+    function disableBundling() public;
+
+    function enableBundling() public;
+}
+
+// File: contracts/interface/IMultiToken.sol
+
+contract IMultiToken is IBasicMultiToken {
+    event Update();
+    event Change(
+        address indexed _fromToken,
+        address indexed _toToken,
+        address indexed _changer,
+        uint256 _amount,
+        uint256 _return
+    );
+
+    function weights(address _token) public view returns (uint256);
+
+    function getReturn(
+        address _fromToken,
+        address _toToken,
+        uint256 _amount
+    ) public view returns (uint256 returnAmount);
+
+    function change(
+        address _fromToken,
+        address _toToken,
+        uint256 _amount,
+        uint256 _minReturn
+    ) public returns (uint256 returnAmount);
+
+    function disableChanges() public;
+}
+
+// File: contracts/network/MultiTokenNetwork.sol
+
+contract MultiTokenNetwork is Pausable {
+    address[] private _multitokens;
+    AbstractDeployer[] private _deployers;
+
+    event NewMultitoken(address indexed mtkn);
+    event NewDeployer(
+        uint256 indexed index,
+        address indexed oldDeployer,
+        address indexed newDeployer
+    );
+
+    function multitokensCount() public view returns (uint256) {
+        return _multitokens.length;
+    }
+
+    function multitokens(uint i) public view returns (address) {
+        return _multitokens[i];
+    }
+
+    function allMultitokens() public view returns (address[]) {
+        return _multitokens;
+    }
+
+    function deployersCount() public view returns (uint256) {
+        return _deployers.length;
+    }
+
+    function deployers(uint i) public view returns (AbstractDeployer) {
+        return _deployers[i];
+    }
+
+    function allWalletBalances(address wallet) public view returns (uint256[]) {
+        uint256[] memory balances = new uint256[](_multitokens.length);
+        // <yes> <report> Gasless_Send
+        for (uint i = 0; i < _multitokens.length; i++) {
+            balances[i] = ERC20(_multitokens[i]).balanceOf(wallet);
+        }
+        return balances;
+    }
+
+    function deleteMultitoken(uint index) public onlyOwner {
+        require(
+            index < _multitokens.length,
+            ""deleteMultitoken: index out of range""
+        );
+        if (index != _multitokens.length - 1) {
+            _multitokens[index] = _multitokens[_multitokens.length - 1];
+        }
+        _multitokens.length -= 1;
+    }
+
+    function deleteDeployer(uint index) public onlyOwner {
+        require(
+            index < _deployers.length,
+            ""deleteDeployer: index out of range""
+        );
+        if (index != _deployers.length - 1) {
+            _deployers[index] = _deployers[_deployers.length - 1];
+        }
+        _deployers.length -= 1;
+    }
+
+    function disableBundlingMultitoken(uint index) public onlyOwner {
+        IBasicMultiToken(_multitokens[index]).disableBundling();
+    }
+
+    function enableBundlingMultitoken(uint index) public onlyOwner {
+        IBasicMultiToken(_multitokens[index]).enableBundling();
+    }
+
+    function disableChangesMultitoken(uint index) public onlyOwner {
+        IMultiToken(_multitokens[index]).disableChanges();
+    }
+
+    function setDeployer(
+        uint256 index,
+        AbstractDeployer deployer
+    ) public onlyOwner whenNotPaused {
+        require(
+            deployer.owner() == address(this),
+            ""setDeployer: first set MultiTokenNetwork as owner""
+        );
+        emit NewDeployer(index, _deployers[index], deployer);
+        _deployers[index] = deployer;
+    }
+
+    function deploy(uint256 index, bytes data) public whenNotPaused {
+        address mtkn = _deployers[index].deploy(data);
+        _multitokens.push(mtkn);
+        emit NewMultitoken(mtkn);
+    }
+
+    function makeCall(
+        address target,
+        uint256 value,
+        bytes data
+    ) public onlyOwner {
+        // solium-disable-next-line security/no-call-value
+        require(target.call.value(value)(data), ""Arbitrary call failed"");
+    }
+}
+","### Security Audit of the MultiTokenNetwork Contract
+
+#### Overview
+The `MultiTokenNetwork` contract is a multi-token management solution. It interacts with multi-tokens through a set of functions seemingly designed to manage the lifecycle of these tokens, including deployment, bundling, and operations on the tokens.
+
+### Key Issues Identified
+
+#### 1. **Use of `call` for Arbitrary Calls**
+   - **Function:** `deploy` and `makeCall`
+   - **Vulnerability:** The use of `address(this).call(data)` and `target.call.value(value)(data)` can permit arbitrary code execution, which is a known attack vector. If an attacker can control the `data` parameter or the target address, they can execute any function on the contract or other contracts, which may lead to a loss of funds or unauthorized actions.
+   - **Mitigation:** Use function calls with specific interfaces rather than generic calls. This guards errors due to unexpected code execution.
+
+#### 2. **Lack of Access Control/ Validation on Token Management Functions**
+   - **Functions:** `deleteMultitoken`, `deleteDeployer`, `disableBundlingMultitoken`, `enableBundlingMultitoken`, `disableChangesMultitoken`, etc.
+   - **Vulnerability:** While these functions are protected by the `onlyOwner` modifier, if ownership is compromised (e.g., if the owner account is exploited), malicious users might execute these functions and disrupt any multi-token configuration.
+   - **Mitigation:** Consider implementing a multi-signature wallet for ownership or an alternative method to manage sensitive operations. Alternatively, add cooldown periods for critical functions.
+
+#### 3. **Incorrect Handling of Array Indices in `deleteMultitoken()` and `deleteDeployer()`**
+   - **Functions:** `deleteMultitoken`, `deleteDeployer`
+   - **Vulnerability:** The method fails to maintain the state of the array correctly when an item is deleted; while it moves the last item into the deleted spot, this could lead to unexpected values still being accessible.
+   - **Mitigation:** Consider using a mapping instead of an array for managing tokens/deployers to avoid complexities in deletion.
+
+#### 4. **Pausable State Management**
+   - **Functionality:** The `Pausable` modifier allows functions to be paused by the owner.
+   - **Vulnerability:** If the contract is paused maliciously, it can potentially halt all operations in the contract, starving users from necessary functionalities.
+   - **Mitigation:** Implement a decay or multi-signature mechanism in the pause/unpause functions to provide more control over pausing.
+
+#### 5. **Lack of Input Validation**
+   - **Functions:** Various, e.g., in `bundleFirstTokens`, `bundle`, and `unbundle`.
+   - **Vulnerability:** Several functions would benefit from validating the input parameters to prevent issues like overflow and to ensure logical correctness (e.g., prevent bundling more tokens than are available in one's balance).
+   - **Mitigation:** Include proper checks for all function parameters to ensure they are within acceptable limits and that they must conform to the expected business logic (e.g., checks against balance).
+
+#### 6. **Reentrancy Attacks**
+   - **Functions:** Not specifically identifiable, but reentrancy can occur in several functions involving token transfers or when calling external contracts.
+   - **Vulnerability:** If external calls are made after alterations to internal state, a malicious contract can exploit this in a reentrancy attack.
+   - **Mitigation:** Use the Checks-Effects-Interactions pattern and incorporate `ReentrancyGuard` from OpenZeppelin libraries.
+
+### Conclusion
+This contract contains critical security vulnerabilities primarily due to the use of untrusted external calls, lack of stringent access controls, input validation, and potential array management issues. Adequate precautions should be taken before deploying this contract in a live environment, including fixing identified issues and implementing thorough testing, such as fuzzing and formal verification.","Sure! Let's analyze each function of the `MultiTokenNetwork` contract independently for security vulnerabilities, logic issues, and potential risks. 
+
+### Function-by-Function Audit
+
+#### 1. Function: `multitokensCount()`
+```solidity
+function multitokensCount() public view returns (uint256) {
+    return _multitokens.length;
+}
+```
+- **Evaluation:** This function is straightforward, simply returning the count of multi-tokens.
+- **Vulnerability:** None detected; no external calls or state changes occur.
+
+#### 2. Function: `multitokens(uint i)`
+```solidity
+function multitokens(uint i) public view returns (address) {
+    return _multitokens[i];
+}
+```
+- **Evaluation:** Returns the address of a multi-token at index `i`.
+- **Vulnerability:** No bounds checking, meaning if `i` exceeds the length of `_multitokens`, it will revert with an out-of-bounds error. This could potentially lead to unexpected calls or state if mismanaged externally.
+- **Mitigation:** Add a bounds check to ensure `i` is within limits.
+
+#### 3. Function: `allMultitokens()`
+```solidity
+function allMultitokens() public view returns (address[]) {
+    return _multitokens;
+}
+```
+- **Evaluation:** Returns the entire array of multi-token addresses.
+- **Vulnerability:** Returning the direct reference to the internal array allows external code to modify the returned array if it's not handled securely. 
+- **Mitigation:** Return a copy of the array instead of the reference.
+
+#### 4. Function: `deployersCount()`
+```solidity
+function deployersCount() public view returns (uint256) {
+    return _deployers.length;
+}
+```
+- **Evaluation:** Similar to `multitokensCount`, this returns the count of deployers.
+- **Vulnerability:** None detected; no external calls or state changes occur.
+
+
+
+#### 5. Function: `deployers(uint i)`
+```solidity
+function deployers(uint i) public view returns (AbstractDeployer) {
+    return _deployers[i];
+}
+```
+- **Evaluation:** Returns a deployer at index `i`.
+- **Vulnerability:** Similar to `multitokens`, there's no bounds checking. If `i` exceeds `_deployers.length`, it will revert.
+- **Mitigation:** Add a bounds check.
+
+#### 6. Function: `allWalletBalances(address wallet)`
+```solidity
+function allWalletBalances(address wallet) public view returns (uint256[]) {
+    uint256[] memory balances = new uint256[](_multitokens.length);
+    for (uint i = 0; i < _multitokens.length; i++) {
+        balances[i] = ERC20(_multitokens[i]).balanceOf(wallet);
+    }
+    return balances;
+}
+```
+- **Evaluation:** This function retrieves and returns the balance of the specified wallet for each multi-token.
+- **Vulnerability:** It may lead to excessive gas consumption if `_multitokens` is large. Using external contracts can introduce risks of failure or revert.
+- **Mitigation:** Consider implementing batching or pagination for large arrays.
+
+#### 7. Function: `deleteMultitoken(uint index)`
+```solidity
+function deleteMultitoken(uint index) public onlyOwner {
+    require(index < _multitokens.length, ""deleteMultitoken: index out of range"");
+    if (index != _multitokens.length - 1) {
+        _multitokens[index] = _multitokens[_multitokens.length - 1];
+    }
+    _multitokens.length -= 1;
+}
+```
+- **Evaluation:** Deletes a multi-token at a specific index.
+- **Vulnerability:** The deletion mechanism can result in loss of data if a user expects the returned address to remain the same. Additionally, if `_multitokens` was manipulated or modified elsewhere, it could lead to unexpected consequences.
+- **Mitigation:** Consider using a mapping to manage tokens instead of an array.
+
+#### 8. Function: `deleteDeployer(uint index)`
+```solidity
+function deleteDeployer(uint index) public onlyOwner {
+    require(index < _deployers.length, ""deleteDeployer: index out of range"");
+    if (index != _deployers.length - 1) {
+        _deployers[index] = _deployers[_deployers.length - 1];
+    }
+    _deployers.length -= 1;
+}
+```
+- **Evaluation:** This has similar functionality to `deleteMultitoken`.
+- **Vulnerability:** Same concerns regarding array management and potential loss of information.
+- **Mitigation:** Same as above; consider using a mapping.
+
+#### 9. Function: `disableBundlingMultitoken(uint index)`
+```solidity
+function disableBundlingMultitoken(uint index) public onlyOwner {
+    IBasicMultiToken(_multitokens[index]).disableBundling();
+}
+```
+- **Evaluation:** This function calls `disableBundling` on the specified multi-token.
+- **Vulnerability:** Lack of index bounds checking; if the token is not a valid multi-token, this leads to a revert.
+- **Mitigation:** Implement index bounds checking.
+
+#### 10. Function: `enableBundlingMultitoken(uint index)`
+```solidity
+function enableBundlingMultitoken(uint index) public onlyOwner {
+    IBasicMultiToken(_multitokens[index]).enableBundling();
+}
+```
+- **Evaluation:** Similar implications to `disableBundlingMultitoken`.
+- **Vulnerability:** Same concerns regarding bounds checking and potential calls to untrusted tokens.
+- **Mitigation:** Add index checking.
+
+#### 11. Function: `disableChangesMultitoken(uint index)`
+```solidity
+function disableChangesMultitoken(uint index) public onlyOwner {
+    IMultiToken(_multitokens[index]).disableChanges();
+}
+```
+- **Evaluation:** Calls a function on the multi-token.
+- **Vulnerability:** Same as above; ensure index is valid and contains the necessary contract interface.
+- **Mitigation:** Add index bounds checking.
+
+#### 12. Function: `setDeployer(uint256 index, AbstractDeployer deployer)`
+```solidity
+function setDeployer(uint256 index, AbstractDeployer deployer) public onlyOwner whenNotPaused {
+    require(deployer.owner() == address(this), ""setDeployer: first set MultiTokenNetwork as owner"");
+    emit NewDeployer(index, _deployers[index], deployer);
+    _deployers[index] = deployer;
+}
+```
+- **Evaluation:** Updates the deployer at the specified index.
+- **Vulnerability:** Potential misuse if the wrong deployer contract is set. There is no check to ensure the new deployer conform to expected contracts.
+- **Mitigation:** Additional validation on `deployer` before assigning, and bounds checking for array access.
+
+#### 13. Function: `deploy(uint256 index, bytes data)`
+```solidity
+function deploy(uint256 index, bytes data) public whenNotPaused {
+    address mtkn = _deployers[index].deploy(data);
+    _multitokens.push(mtkn);
+    emit NewMultitoken(mtkn);
+}
+```
+- **Evaluation:** Deploys a new multi-token via an external deployer.
+- **Vulnerability:** This can lead to arbitrary contract creation; if the deployer logic is untrusted or faulty, it can introduce security risks.
+- **Mitigation:** Require `data` to conform to a specific structure that ensures only valid multi-tokens can be created.
+
+#### 14. Function: `makeCall(address target, uint256 value, bytes data)`
+```solidity
+function makeCall(address target, uint256 value, bytes data) public onlyOwner {
+    require(target.call.value(value)(data), ""Arbitrary call failed"");
+}
+```
+- **Evaluation:** Allows the owner to make arbitrary calls.
+- **Vulnerability:** This function is dangerous as it allows the owner to make calls to any contract, potentially executing malicious or unintended code, leading to fund loss.
+- **Mitigation:** Avoid using `call` for arbitrary actions. Enable specific function calls through interfaces instead.
+
+### Summary
+The `MultiTokenNetwork` contract exhibits several vulnerabilities and potential logic issues. Here’s a consolidated list of recommendations:
+- **Bounds Checking:** Always verify index references when accessing arrays.
+- **Input Validation:** Ensure that inputs adhere to expected criteria and expectations.
+- **Data Safety:** Avoid exposing mutable states/arrays directly; utilize immutable structures when possible.
+- **Avoid Arbitrary Calls:** Refrain from executing arbitrary calls unless strictly necessary, ensuring thorough checks on the external contracts being interacted with.
+- **Centralized Control Risks:** Consider implementing multi-signature or decentralized controls for critical functions.
+
+It is essential to review and address these issues prior to deploying the contract in a production environment. Thorough testing and auditing practices should be followed to minimize risks."

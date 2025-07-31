@@ -1,0 +1,225 @@
+Contract Code,Stage 1 Audit Result,Stage 2 Audit Result
+"/*
+ * @source: https://github.com/cclabsInc/BlockChainExploitation/blob/master/2020_BlockchainFreeCourse/bad_randomness/vulnerableBlockHashGame.sol
+ * @author: -
+ * @vulnerable_at_lines: 32
+ */
+
+
+pragma solidity ^0.5.0;
+
+contract vulnerableBlockHashGame {
+    
+    uint balance = 2 ether;
+    mapping (address => uint) blockNumber;     
+    bool public win; 
+    
+    constructor() public payable{
+        require(msg.value >= 10 ether);
+    }
+    
+    function get_block_number() internal  {   
+        blockNumber[msg.sender] = uint(block.number);
+    }
+    
+    function playGame() public payable {
+        require (msg.value >= 1 ether);
+        get_block_number();
+    }
+     
+     
+    function checkWinner() public payable { 
+        // <yes> <report> BAD_RANDOMNESS
+	    if (uint(blockhash(blockNumber[msg.sender])) % 2 == 0) {
+	        win = true; 
+		    msg.sender.transfer(balance);
+		}else{
+		    win = false;
+		}
+    }
+    
+    function wasteTime() public{
+        uint test = uint(block.number);
+
+     }
+
+}","The `vulnerableBlockHashGame` smart contract code contains several critical issues that could lead to loss of funds or make the contract vulnerable to attack. Here is a detailed security audit, examining the contract function by function:
+
+### **1. Constructor:**
+```solidity
+constructor() public payable {
+    require(msg.value >= 10 ether);
+}
+```
+**Issues:**
+- **No Functionality for Balance Management:** The constructor only requires a minimum of 10 ether but doesn't establish a way to manage the contract balance (like storing it in a variable or allowing users to withdraw).
+- **Unused Balance:** Funds sent to the contract on deployment are not utilized or reclaimed later, leading to a potential locking of funds or mismanagement.
+
+---
+
+### **2. `get_block_number` Function:**
+```solidity
+function get_block_number() internal {
+    blockNumber[msg.sender] = uint(block.number);
+}
+```
+**Issues:**
+- **Internal Function:** As this function is internal, it is only callable from within the contract. This limits visibility and could make testing and functionality management harder.
+- **Mapping for Block Numbers:** The function stores the block number corresponding to the sender's address, which isn't inherently harmful, but combined with `checkWinner`, may lead to issues with replay attacks.
+
+---
+
+### **3. `playGame` Function:**
+```solidity
+function playGame() public payable {
+    require(msg.value >= 1 ether);
+    get_block_number();
+}
+```
+**Issues:**
+- **Lack of Validation for Previous Plays:** There's no implementation to prevent a single player from playing the game multiple times within the same block, which could skew the randomness if combined with the `checkWinner` function.
+- **Reentrancy Attack Potential:** Though this function does not interact with any external contracts, if modified later, it could introduce reentrancy vulnerabilities.
+
+---
+
+### **4. `checkWinner` Function:**
+```solidity
+function checkWinner() public payable {
+    if (uint(blockhash(blockNumber[msg.sender])) % 2 == 0) {
+        win = true; 
+        msg.sender.transfer(balance);
+    } else {
+        win = false;
+    }
+}
+```
+**Critical Issues:**
+- **Bad Randomness:** This function relies on `blockhash(blockNumber[msg.sender])` for randomness:
+  - The block hash could be manipulated since it can be influenced by miners, making it predictable. It is known that miners can impact the outcome by choosing which transactions to include in a block.
+  - The timing of when `checkWinner` is called can lead to instances where a user could anticipate the result based on the block’s state, particularly if there's a way to play multiple times or ""time"" their transactions effectively.
+  
+- **Funds Transfer Risks:** Ideally, the transfer function should handle failures. If `msg.sender.transfer(balance)` fails (e.g., if the recipient is a contract that reverts or runs out of gas), it will leave the contract in an inconsistent state, where the win condition is true, but the funds have not been delivered.
+
+- **Infinite Wins:** Once a player wins, they might repeatedly invoke `checkWinner` as long as they can find a suitable block to manipulate. This can lead to situations where they withdraw more than intended.
+
+- **Transfer Amount Hardcoding:** `msg.sender.transfer(balance)` transfers a fixed amount. If the balance decreases (say through a player winning), funds may not be sufficient, leading to a failure that requires external management to correct.
+
+---
+
+### **5. `wasteTime` Function:**
+```solidity
+function wasteTime() public {
+    uint test = uint(block.number);
+}
+```
+**Comments:**
+- This function is unnecessary and does not hold value for the contract's functionality. It could also potentially confuse users who mistakenly think it's significant or consider it a valid entry point into the game's logic.
+
+---
+
+### **Overall Recommendations:**
+1. **Enhance Randomness:** Use an oracle for random number generation or a more secure method than blockhash and block numbers.
+2. **Reentrancy Protection:** Implement checks or the ""checks-effects-interactions"" pattern, especially when sending ether.
+3. **Account for Previous Plays:** Develop a strict game-loop mechanism to prevent favorable plays from the same player within the same context.
+4. **Internalize State Changes:** Ensure that the outcomes and balances update in consistent states, or even better, in a controlled manner rather than in the flow of transaction execution.
+5. **Upgrade Solidity Version:** Usage of an outdated Solidity version (0.5.0) may expose the contract to more known vulnerabilities. Upgrading to a stable version improves security and introduces better language patterns.
+
+By addressing these highlighted vulnerabilities, the game's overall security and fairness could significantly improve, reducing the risk of fund loss or exploitation.","Sure! Let’s evaluate each function in the `vulnerableBlockHashGame` contract independently, detailing potential vulnerabilities and suggesting areas for improvement.
+
+### **1. Constructor**
+```solidity
+constructor() public payable {
+    require(msg.value >= 10 ether);
+}
+```
+**Analysis:**
+- **No Handling of Excess Funds:** The contract does not specify what happens to funds exceeding 10 ether. If a user sends 15 ether, only 10 ether is accounted for; the contract effectively locks the extra 5 ether unless a withdrawal function is implemented.
+  
+- **Potential Denial of Service (DoS):** If an attacker deploys the contract with the minimum required funds, it could limit access or usability for legitimate players who are trying to deploy in a particular context.
+
+**Recommendations:**
+- Add a function to handle withdrawals or balance management to avoid locking funds unnecessarily.
+- Clarify in documentation that excess funds are not utilized or returned.
+
+---
+
+### **2. `get_block_number` Function**
+```solidity
+function get_block_number() internal {
+    blockNumber[msg.sender] = uint(block.number);
+}
+```
+**Analysis:**
+- **Internal Usage Limits:** This is an internal function and only callable from other functions in the contract, which could complicate testing and monitoring.
+  
+- **Replay Attack Vector:** The mapping `blockNumber` could be susceptible to replay attacks whereby a user calls this function and triggers the `checkWinner` function multiple times within the same block if the game conditions allow it.
+
+**Recommendations:**
+- Consider providing a function to reset or validate whether the user has already played in the current block or round to mitigate replay attacks.
+  
+---
+
+### **3. `playGame` Function**
+```solidity
+function playGame() public payable {
+    require(msg.value >= 1 ether);
+    get_block_number();
+}
+```
+**Analysis:**
+- **Lack of Restrictions on Game Participation:** No mechanisms to prevent users from calling this function multiple times, leading to potential unintended consequences in the randomness retrieved in `checkWinner`.
+  
+- **Reentrancy Risk:** Although `playGame` does not interact with other contracts, if modified incorrectly in the future, it could expose the contract to reentrancy vulnerabilities.
+
+**Recommendations:**
+- Implement a mechanism to restrict participation within a particular gameplay instance if the game is supposed to be one-off per ""round"" for each player.
+- Use the ""checks-effects-interactions"" pattern in external function invocations to enhance security.
+
+---
+
+### **4. `checkWinner` Function**
+```solidity
+function checkWinner() public payable {
+    if (uint(blockhash(blockNumber[msg.sender])) % 2 == 0) {
+        win = true; 
+        msg.sender.transfer(balance);
+    } else {
+        win = false;
+    }
+}
+```
+**Analysis:**
+- **Predictability of Outcomes (Bad Randomness):** The function uses `blockhash` combined with the user's block number. This makes it vulnerable to manipulation by miners who could predict or control outcomes.
+  
+- **Potential Ether Transfer Failure:** If the function fails to transfer the funds (e.g., if `msg.sender` is a contract that throws), the state (winning status) might reflect incorrectly, allowing for exploits.
+
+- **Probability and Game Mechanics:** The way winners are determined (even/odd) creates circumstances where a user could abuse gameplay unless limited in frequency.
+
+**Recommendations:**
+- Integrate a more secure method for random number generation, such as Chainlink VRF or fully random number-generating oracles.
+- Implement a fallback or direct check to confirm ether transfer success and update state only after a successful transfer.
+
+---
+
+### **5. `wasteTime` Function**
+```solidity
+function wasteTime() public {
+    uint test = uint(block.number);
+}
+```
+**Analysis:**
+- **Unnecessary Function:** The function serves no purpose in the overall contract and could confuse users regarding its intent and use.
+
+**Recommendations:**
+- Remove this function to simplify the contract and make it easier for users and auditors to understand the contract functionality.
+
+---
+
+### **Summary of Findings:**
+Each function has its unique weaknesses, primarily around randomness and fund management. Here is a consolidated list of recommendations:
+1. Enhance the constructor to manage excess funds effectively.
+2. Strengthen user participation by implementing mechanisms that prevent multiple plays within the same context.
+3. Update the `checkWinner` function to use a more secure source for randomness, handle potential ether transfer failures, and ensure that state changes occur only when necessary.
+4. Consider removing utility functions that do not contribute to core functionality.
+
+This individual function assessment reveals a clear path for improving the overall security and usability of the contract. Implementing these recommendations would significantly mitigate potential risks."
