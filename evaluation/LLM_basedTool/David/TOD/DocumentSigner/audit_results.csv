@@ -1,0 +1,308 @@
+Contract Code,Stage 1 Audit Result,Stage 2 Audit Result
+"/*
+ * @source: https://github.com/DependableSystemsLab/SolidiFI-benchmark/blob/master/buggy_contracts/TOD/buggy_10.sol
+ * @author: -
+ * @vulnerable_at_lines: 61,158
+ */
+
+
+pragma solidity ^0.5.0;
+
+contract DocumentSigner {
+  address payable winner_TOD39;
+function play_TOD39(bytes32 guess) public{
+ 
+       if (keccak256(abi.encode(guess)) == keccak256(abi.encode('hello'))) {
+
+            winner_TOD39 = msg.sender;
+        }
+    }
+
+function getReward_TOD39() payable public{
+     
+       winner_TOD39.transfer(msg.value);
+    }
+  mapping(bytes32=>string) public docs;
+  bool claimed_TOD36 = false;
+address payable owner_TOD36;
+uint256 reward_TOD36;
+function setReward_TOD36() public payable {
+        require (!claimed_TOD36);
+
+        require(msg.sender == owner_TOD36);
+        owner_TOD36.transfer(reward_TOD36);
+        reward_TOD36 = msg.value;
+    }
+
+    function claimReward_TOD36(uint256 submission) public {
+        require (!claimed_TOD36);
+        require(submission < 10);
+
+        msg.sender.transfer(reward_TOD36);
+        claimed_TOD36 = true;
+    }
+  mapping(bytes32=>address[]) public signers;
+    
+    modifier validDoc(bytes32 _docHash) {
+        require(bytes(docs[_docHash]).length != 0, ""Document is not submitted"");
+        _;
+    }
+
+  address payable winner_TOD31;
+function play_TOD31(bytes32 guess) public{
+ 
+       if (keccak256(abi.encode(guess)) == keccak256(abi.encode('hello'))) {
+
+            winner_TOD31 = msg.sender;
+        }
+    }
+
+function getReward_TOD31() payable public{
+       // <yes> <report> TOD
+       winner_TOD31.transfer(msg.value);
+    }
+  event Sign(bytes32 indexed _doc, address indexed _signer);
+  address payable winner_TOD13;
+function play_TOD13(bytes32 guess) public{
+ 
+       if (keccak256(abi.encode(guess)) == keccak256(abi.encode('hello'))) {
+
+            winner_TOD13 = msg.sender;
+        }
+    }
+
+function getReward_TOD13() payable public{
+     
+       winner_TOD13.transfer(msg.value);
+    }
+  event NewDocument(bytes32 _docHash);
+
+    function submitDocument(string memory _doc) public {
+        bytes32 _docHash = getHash(_doc);
+        if(bytes(docs[_docHash]).length == 0) {
+            docs[_docHash] = _doc;
+            emit NewDocument(_docHash);
+        }
+    }
+address payable winner_TOD35;
+function play_TOD35(bytes32 guess) public{
+ 
+       if (keccak256(abi.encode(guess)) == keccak256(abi.encode('hello'))) {
+
+            winner_TOD35 = msg.sender;
+        }
+    }
+
+function getReward_TOD35() payable public{
+     
+       winner_TOD35.transfer(msg.value);
+    }
+
+    function signDocument(bytes32 _docHash) public validDoc(_docHash){
+        address[] storage _signers = signers[_docHash];
+        for(uint i = 0; i < _signers.length; i++) {
+            if(_signers[i] == msg.sender) return;
+        }
+        _signers.push(msg.sender);
+    }
+bool claimed_TOD40 = false;
+address payable owner_TOD40;
+uint256 reward_TOD40;
+function setReward_TOD40() public payable {
+        require (!claimed_TOD40);
+
+        require(msg.sender == owner_TOD40);
+        owner_TOD40.transfer(reward_TOD40);
+        reward_TOD40 = msg.value;
+    }
+
+    function claimReward_TOD40(uint256 submission) public {
+        require (!claimed_TOD40);
+        require(submission < 10);
+
+        msg.sender.transfer(reward_TOD40);
+        claimed_TOD40 = true;
+    }
+    
+    function getDetail(bytes32 _docHash) public validDoc(_docHash) view returns(string memory _doc, address[] memory _signers) {
+        _doc = docs[_docHash];
+        _signers = signers[_docHash];
+    }
+address payable winner_TOD33;
+function play_TOD33(bytes32 guess) public{
+ 
+       if (keccak256(abi.encode(guess)) == keccak256(abi.encode('hello'))) {
+
+            winner_TOD33 = msg.sender;
+        }
+    }
+
+function getReward_TOD33() payable public{
+     
+       winner_TOD33.transfer(msg.value);
+    }
+    
+    function getHash(string memory _doc) public pure returns(bytes32) {
+        return keccak256(abi.encodePacked(_doc));
+    }
+address payable winner_TOD27;
+function play_TOD27(bytes32 guess) public{
+ 
+       if (keccak256(abi.encode(guess)) == keccak256(abi.encode('hello'))) {
+
+            winner_TOD27 = msg.sender;
+        }
+    }
+
+function getReward_TOD27() payable public{
+        // <yes> <report> TOD
+       winner_TOD27.transfer(msg.value);
+    }
+}","The provided Solidity contract, `DocumentSigner`, has multiple security vulnerabilities and issues, particularly in the context of fund management and permission controls. Let's analyze and audit each function closely.
+
+### Overview
+The contract aims to facilitate document submissions and signing functionalities while providing rewards to users under specific conditions. However, it exposes significant risks leading to potential fund losses and unauthorized access.
+
+### Vulnerability Assessment by Function
+
+1. **play_TOD39, getReward_TOD39**
+    - **Critical Issue**: The `play_TOD39` function allows anyone to claim `winner_TOD39` by guessing 'hello'. This could lead to arbitrary users receiving funds from the contract if they manage to guess the correct value. Additionally, the funds transferred to `winner_TOD39` can come from any call to `getReward_TOD39`, potentially leading to unintentional fund redistribution.
+    
+2. **setReward_TOD36, claimReward_TOD36**
+    - **Critical Issue**: 
+        - `setReward_TOD36` allows only the `owner_TOD36` to set and transfer the reward. However, if the owner is not properly set before this function is called, it can cause the function to fail without exceptions to track who the owner is.
+        - In `claimReward_TOD36`, since `claimed_TOD36` is only set to true after transferring funds, any reentrant attack could lead to multiple claims before the state update, causing the contract to inadvertently drain its funds. 
+
+3. **submitDocument**
+    - **Logic Issue**: The function does not consider cases for malicious actors submitting multiple documents. An attacker could overwrite an existing document with a chain of submissions, leading to unpredictable contract behavior.
+
+4. **signDocument**
+    - **Logic Issue**: 
+        - The `for` loop iterating through the `_signers` array introduces a gas limit risk if the number of signers grows significantly due to increasing computational complexity, which could lead to stuck transactions.
+        - The function does not have any mechanism to limit the total number of signers, opening further potential for excessive gas fees when signing documents.
+
+5. **getDetail**
+    - This function properly checks for valid documents and retrieves details without modifying state. However, if called against a maliciously constructed or manipulated document hash, it could reveal sensitive information to someone who hasn't been authorized.
+
+6. **getHash**
+    - This function is pure and doesn't pose any immediate vulnerability, but improper usage or reliance on weak hashing (like not accounting for various state changes) could potentially be problematic if used outside the contract's intended context.
+
+### Additional Concerns
+- **Don't Use `transfer` for Fund Handling**: Using `transfer` to send Ether is risky. If the receiving contract has a fallback function that consumes more than 2300 gas, it will revert the transaction. This should be replaced with `call.value()` to prevent reverts.
+
+- **Lack of Access Control**: Critical functions providing access to rewards and document settings lack access control checks, putting fund safety at risk if unauthorized users can invoke them.
+
+- **Variable Initialization Issues**: Variables such as `owner_TOD36` and `reward_TOD36` aren’t initialized or set in the constructor, which could lead to unexpected behavior or fund loss.
+
+### Recommendations for Improvements
+1. **Implement a secure ownership pattern** using OpenZeppelin's Ownable contract or similar.
+2. **Add proper access control** checks for any function that interacts with sensitive data or involves fund transfers.
+3. **Use `call.value()` instead of `transfer`** to prevent issues with gas consumption in receiving contracts.
+4. **Implement checks on the array size** for `_signers` to prevent gas limit issues and excessive signing.
+5. **Reentrancy guard** when transferring funds in `claimReward_TOD36`.
+6. Consider incorporating a **funding mechanism** that allows the contract to have distinct storage areas for different states, like rewards versus user document entries.
+
+### Conclusion
+The `DocumentSigner` contract has several critical vulnerabilities, particularly concerning fund management and access control. Addressing these issues through code implementation and comprehensive testing could mitigate the potential risks and enhance the security posture of this smart contract.","Sure, let’s audit each function of the `DocumentSigner` contract independently, focusing on potential security vulnerabilities and logic issues.
+
+### 1. `play_TOD39` Function
+```solidity
+function play_TOD39(bytes32 guess) public {
+    if (keccak256(abi.encode(guess)) == keccak256(abi.encode('hello'))) {
+        winner_TOD39 = msg.sender;
+    }
+}
+```
+- **Vulnerabilities**:
+    - **Guessing Game**: Anyone can call `play_TOD39` and potentially claim `winner_TOD39` by guessing 'hello'. This creates a situation where any user could claim to be the winner, which is a critical vulnerability, allowing unauthorized users to take funds.
+    - **Denial of Service**: Malicious actors could flood this function with calls, potentially exhausting gas limits or creating a race condition where multiple users might try to claim the prize simultaneously.
+
+### 2. `getReward_TOD39` Function
+```solidity
+function getReward_TOD39() payable public {
+    winner_TOD39.transfer(msg.value);
+}
+```
+- **Vulnerabilities**:
+    - **Improper Fund Transfer**: The use of `transfer` could lead to issues if the receiving address has a fallback function that consumes more than 2300 gas. If this happens, the transaction will revert, and users won't receive their funds.
+    - **Lack of Access Control**: Anyone can call `getReward_TOD39` and transfer any amount of value they specify to `winner_TOD39`. There are no checks to prevent abuse (for example, to set an arbitrary amount for transfer).
+
+### 3. `setReward_TOD36` Function
+```solidity
+function setReward_TOD36() public payable {
+    require(!claimed_TOD36);
+    require(msg.sender == owner_TOD36);
+    owner_TOD36.transfer(reward_TOD36);
+    reward_TOD36 = msg.value;
+}
+```
+- **Vulnerabilities**:
+    - **Race Condition/Unverified Ownership**: If `owner_TOD36` isn’t properly initialized or is mistakenly set to a non-existent address, the function may fail. It should ensure the owner is set in the constructor or through a secure function.
+    - **Reentrancy Attack**: There’s a risk of reentrancy when transferring funds before state changes (`owner_TOD36.transfer(reward_TOD36);`). An attacker could exploit this to drain the contract.
+    - **Reward Theft**: An attacker could first call this function, get the value set for `reward_TOD36`, and then subsequently invoke any transfer function in another contract, draining funds if performed correctly.
+
+### 4. `claimReward_TOD36` Function
+```solidity
+function claimReward_TOD36(uint256 submission) public {
+    require(!claimed_TOD36);
+    require(submission < 10);
+    msg.sender.transfer(reward_TOD36);
+    claimed_TOD36 = true;
+}
+```
+- **Vulnerabilities**:
+    - **Reentrancy Risk**: The function allows someone to re-enter the contract after `msg.sender.transfer(reward_TOD36);` could lead to multiple invocations before `claimed_TOD36` is set to true.
+    - **Incorrect Reward Logic**: The submission condition (`submission < 10`) lacks context on its purpose. It could potentially lead to incorrect reward distributions or leave qualifying conditions vague.
+    - **No Controls on the Amount**: If `reward_TOD36` is 0, the transfer will do nothing, but the function lacks feedback to the user regarding the reward's status.
+
+### 5. `submitDocument` Function
+```solidity
+function submitDocument(string memory _doc) public {
+    bytes32 _docHash = getHash(_doc);
+    if (bytes(docs[_docHash]).length == 0) {
+        docs[_docHash] = _doc;
+        emit NewDocument(_docHash);
+    }
+}
+```
+- **Vulnerabilities**:
+    - **Document Overwriting**: This function does check if the document exists before submission, but there’s no restriction on who can submit documents. An attacker could flood the system with irrelevant documents, potentially pushing legitimate documents out of storage or confusing users.
+    - **No Verification**: There’s no validation of document content; malicious or harmful documents could be submitted.
+
+### 6. `signDocument` Function
+```solidity
+function signDocument(bytes32 _docHash) public validDoc(_docHash) {
+    address[] storage _signers = signers[_docHash];
+    for (uint i = 0; i < _signers.length; i++) {
+        if (_signers[i] == msg.sender) return;
+    }
+    _signers.push(msg.sender);
+}
+```
+- **Vulnerabilities**:
+    - **Gas Limit Risk**: If documents have a lot of signers, this function could run out of gas due to the `for` loop over `_signers`. It allows plenty of signers and that could accumulate to a sizeable array.
+    - **No Exclusion**: The function allows repeated signatures, as there’s no modifiable way to remove a signer once they've signed.
+    - **Lack of Events**: There should ideally be an event emitted when a document is signed for transparency and tracking purposes.
+
+### 7. `getDetail` Function
+```solidity
+function getDetail(bytes32 _docHash) public validDoc(_docHash) view returns (string memory _doc, address[] memory _signers) {
+    _doc = docs[_docHash];
+    _signers = signers[_docHash];
+}
+```
+- **Vulnerabilities**:
+    - **Information Exposure**: This function allows any user to view documents and their signers which could breach confidentiality if sensitive data is stored in the documents.
+    - **Lack of Access Control**: There are no checks to ensure that only authorized users can retrieve doc details.
+
+### 8. `getHash` Function
+```solidity
+function getHash(string memory _doc) public pure returns (bytes32) {
+    return keccak256(abi.encodePacked(_doc));
+}
+```
+- **Vulnerabilities**:
+    - **Predictable Hashing**: If users can influence `_doc`, they could create hash collisions intentionally if not properly constrained. Additionally, assumptions on document uniqueness based on hashing can lead to inaccuracies.
+
+### Conclusion
+Individually auditing each function reveals significant vulnerabilities and issues that can lead to potential fund losses or misuse of the contract. Recommendations include implementing robust access control mechanisms, addressing any reentrancy risks, ensuring proper ownership control, preventing document flooding, and using events for transparency in actions taken on the contract. Prioritizing security best practices and potentially integrating established libraries (like OpenZeppelin) can significantly enhance the security of the contract."

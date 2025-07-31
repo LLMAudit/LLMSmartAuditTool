@@ -1,0 +1,195 @@
+Contract Code,Stage 1 Audit Result,Stage 2 Audit Result
+"/*
+ * @source: https://ethernaut.zeppelin.solutions/level/0xf70706db003e94cfe4b5e27ffd891d5c81b39488
+ * @author: Alejandro Santander
+ * @vulnerable_at_lines: 24
+ */
+
+pragma solidity ^0.4.18;
+
+contract Reentrance {
+
+  mapping(address => uint) public balances;
+
+  function donate(address _to) public payable {
+    balances[_to] += msg.value;
+  }
+
+  function balanceOf(address _who) public view returns (uint balance) {
+    return balances[_who];
+  }
+
+  function withdraw(uint _amount) public {
+    if(balances[msg.sender] >= _amount) {
+      // <yes> <report> REENTRANCY
+      if(msg.sender.call.value(_amount)()) {
+        _amount;
+      }
+      balances[msg.sender] -= _amount;
+    }
+  }
+
+  function() public payable {}
+}
+","This contract presents several critical vulnerabilities that could lead to the loss of funds. I will analyze each function independently, identify security issues, and highlight logical problems.
+
+## Contract Overview
+
+The contract `Reentrance` allows users to donate Ether to other users and withdraw their balance. The design includes a simple mapping to track user balances. However, the implementation is inherently flawed and prone to vulnerabilities.
+
+### Function Analysis
+
+1. **donate(address _to) public payable**
+   - **Logic Issue:** There is no check to ensure that the `_to` address is not the zero address (0x0). This could lead to accidental donations pointing to an invalid or unintended address.
+   - **Security Issue:** The contract does not have any mechanism in place to prevent overflows/underflows with the addition of `msg.value` since Solidity version 0.4.18 does not have built-in overflow checks. However, testing for balances could potentially prevent negative balances for users.
+
+2. **balanceOf(address _who) public view returns (uint balance)**
+   - **Logic Issue:** The returned balance does not take into account the payable Ether in the fallback function. However, it does not pose any immediate security threat.
+   - **This function is mostly secure as it only returns the current balance of a user.**
+
+3. **withdraw(uint _amount) public**
+   - **Critical Security Issue: Reentrancy Vulnerability**
+     - The biggest concern is due to the way the withdrawal is structured. The external call to `msg.sender.call.value(_amount)()` occurs **before** the state change that updates `balances[msg.sender]`. If a malicious user creates a contract that calls `withdraw()` recursively before their balance is updated, they could withdraw more Ether than they actually have.
+     - This classic reentrancy issue could lead to draining the contract's funds, as the malicious contract could repeatedly invoke `withdraw` during the execution of the external call.
+
+     Example of how this could happen:
+     - User A donates a certain amount and then calls `withdraw()` from a malicious contract.
+     - The call to the malicious contract triggers a fallback function that again calls `withdraw()`, which lets it withdraw more funds than allowed.
+
+4. **fallback function: function() public payable { }**
+   - **Logic Issue:** The fallback function accepts Ether, but it does not do anything with it. It's allowed to receive Ether without a limit, making it possible for external contracts to fund this contract indefinitely.
+   - **Low Security Issue:** Although not directly harmful, lack of restrictions on how Ether can be received may not align with user expectations and exposes the contract to unnecessary risks such as denial-of-service (DoS) attacks if flooded with transactions.
+
+### Summary of Vulnerabilities
+
+1. **Reentrancy Vulnerability:** This is the most critical issue. By not updating the user's balance before calling an external address, the contract exposes itself to reentrancy attacks, allowing a malicious user to drain the contract of its funds.
+2. **No Zero Address Check in Donation:** Users could improperly send Ether to the zero address.
+3. **Possible Overflow/Underflow Risks:** Lack of safe math checks could lead to unexpected results due to incorrect balance states.
+4. **Unrestricted Accepting of Ether:** The fallback function allows any amount of Ether without any validations.
+5. **Missing Access Controls:** The contract does not restrict who can withdraw funds, aside from the balance checks. An unauthorized user could potentially trigger a fund withdrawal in a more complex system.
+
+### Recommendations to Fix Vulnerabilities
+
+1. **Implement checks-effects-interactions pattern:**
+   - Update the user balance after the transfer of Ether to prevent reentrancy.
+   ```solidity
+   function withdraw(uint _amount) public {
+       require(balances[msg.sender] >= _amount);
+       balances[msg.sender] -= _amount; // Update balance first
+       msg.sender.call.value(_amount)(); // then send Ether
+   }
+   ```
+
+2. **Check for zero address in the duration of donate:**
+   - Avoid sending Ether to the zero address.
+   ```solidity
+   require(_to != address(0));
+   ```
+
+3. **Use SafeMath for arithmetic operations:**
+   - Import a SafeMath library for better safety with arithmetic to protect against overflows and underflows.
+   
+4. **Add proper event logging for donations and withdrawals:**
+   - Log important actions happening on the contract for better tracking.
+
+5. **Consider implementing access control or additional validations on ether receiving conditions, if necessary.**
+
+These measures will drastically improve the security posture of the `Reentrance` contract.","Certainly! I will review each function in the `Reentrance` contract independently, highlighting any critical issues and vulnerabilities specific to each function.
+
+### Function 1: `donate(address _to) public payable`
+
+```solidity
+function donate(address _to) public payable {
+    balances[_to] += msg.value;
+}
+```
+
+#### Analysis:
+- **Security Issues:**
+  - **Zero Address Check:** The function allows donations to the zero address (0x0). This could lead to funds being irretrievably lost since the balance for address(0) cannot be accessed or withdrawn by anyone.
+  - **Overflow Risk:** The addition of `msg.value` directly to `balances[_to]` does not include any overflow or underflow checks. Although Solidity ^0.4.18 does not natively handle this, it is still a practice that should be avoided for future upgrades or changes.
+  
+#### Recommendations:
+- Add a check to ensure that `_to` is not the zero address:
+  
+  ```solidity
+  require(_to != address(0), ""Cannot donate to zero address"");
+  ```
+
+- Implement SafeMath for safe arithmetic operations to prevent overflow.
+
+### Function 2: `balanceOf(address _who) public view returns (uint balance)`
+
+```solidity
+function balanceOf(address _who) public view returns (uint balance) {
+    return balances[_who];
+}
+```
+
+#### Analysis:
+- **General Logic:**
+  - This function simply returns the balance for a given address and does not modify any state within the contract.
+  
+#### Security Issues:
+- No critical security issues present in this function. However, it doesn't account for Ether sent directly to the contract.
+
+#### Recommendations:
+- Ensure that users are aware that this balance does not include any Ether sent directly to the contract via the fallback function.
+
+### Function 3: `withdraw(uint _amount) public`
+
+```solidity
+function withdraw(uint _amount) public {
+    if (balances[msg.sender] >= _amount) {
+        // <yes> <report> REENTRANCY
+        if (msg.sender.call.value(_amount)()) {
+            _amount;
+        }
+        balances[msg.sender] -= _amount;
+    }
+}
+```
+
+#### Analysis:
+- **Security Issues:**
+  - **Reentrancy Vulnerability:** The main issue here is that the call to transfer Ether (`msg.sender.call.value(_amount)()`) is executed **before** the state is updated with `balances[msg.sender] -= _amount;`. A malicious contract could exploit this by calling `withdraw` recursively before their balance is altered, allowing them to withdraw more than they should.
+  - **Gas Limit Risks:** The use of `call` could cause complications if the fallback function of the receiving contract consumes more gas than is provided in the transaction.
+  - **No Access Control:** Any address with a non-zero balance can withdraw any amount that does not exceed their balance without other controls.
+
+#### Recommendations:
+- **Use the Checks-Effects-Interactions pattern**:
+  
+  ```solidity
+  function withdraw(uint _amount) public {
+      require(balances[msg.sender] >= _amount, ""Insufficient balance"");
+      balances[msg.sender] -= _amount; // Update balance first
+      msg.sender.call.value(_amount)(); // then send Ether
+  }
+  ```
+
+- Consider using `transfer` instead of `call` for more straightforward Ether transfers, as it automatically reverts if it fails and provides a fixed gas stipend.
+  
+### Function 4: `function() public payable {}` (fallback function)
+
+```solidity
+function() public payable {}
+```
+
+#### Analysis:
+- **General Logic:**
+  - This function does allow the contract to accept Ether sent to it directly. However, it does not enforce any rules or restrictions on this incoming Ether.
+
+#### Security Issues:
+- **Unrestricted Accepting of Ether:** There is no limit or checks on how Ether can be received, which could lead to Denial-of-Service (DoS) attacks potentially overwhelming the contract with unwanted transactions.
+  
+#### Recommendations:
+- Consider implementing functionalities inside the fallback function to use the received Ether appropriately.
+- Document that the function exists primarily for accepting Ether and does not track or manage incoming funds, making this clear in the developer's documentation.
+
+### Summary of Independent Function Analysis:
+- **Function 1 (donate)**: Vulnerable due to zero address donations and potential overflow issues.
+- **Function 2 (balanceOf)**: No critical security issues but lacks clarity on Ether directly sent.
+- **Function 3 (withdraw)**: High severity reentrancy vulnerability, low gas consumption risk, and insufficient checks.
+- **Function 4 (fallback)**: Accepts Ether without restrictions which could lead to abuse.
+
+**Strengthening the contract** through checks, proper error handling, and using safe arithmetic practices will significantly reduce the risk exposure in this contract."

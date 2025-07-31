@@ -1,0 +1,195 @@
+Contract Code,Stage 1 Audit Result,Stage 2 Audit Result
+"// SPDX-License-Identifier: MIT
+/*
+ * @source: https://blog.solidityscan.com/security-issues-with-delegate-calls-4ae64d775b76
+ * @author: 
+ * @vulnerable_at_lines: 35
+ */
+
+pragma solidity ^0.7.0;
+
+contract Delegate {
+
+    address public owner;
+
+    constructor(address _owner) public {
+        owner = _owner;
+    }
+
+    function pwn() public {
+        owner = msg.sender;
+    }
+}
+
+contract Delegation {
+
+    address public owner;
+    Delegate delegate;
+
+    constructor(address _delegateAddress) public {
+        delegate = Delegate(_delegateAddress);
+        owner = msg.sender;
+    }
+
+    fallback() external {
+        // <yes> <report> unsafe delegatecall
+        (bool result,) = address(delegate).delegatecall(msg.data);
+        if (result) {
+            this;
+        }
+    }
+}","The provided Solidity contract consists of two contracts: `Delegate` and `Delegation`. I'll perform a security audit, identifying potential vulnerabilities and logic issues that can lead to loss of funds. 
+
+### Contract Overview
+
+1. **Delegate Contract**
+   - Contains `owner` state variable.
+   - Allows changing the owner via the `pwn` function, which can be called by anyone.
+
+2. **Delegation Contract**
+   - Contains its own `owner` state variable.
+   - Has a delegate instance of the `Delegate` contract.
+   - Uses a fallback function to delegate calls to the `Delegate` contract.
+
+### Detailed Audit of Each Function
+
+#### Delegate Contract
+
+- **Constructor:**
+  ```solidity
+  constructor(address _owner) public { 
+      owner = _owner; 
+  }
+  ```
+  - **Issue:** The constructor allows setting the initial owner as any address, including unauthorized addresses. However, this may be acceptable depending on intended use, but should be highlighted that can lead to insecure ownership if not managed properly.
+
+- **pwn function:**
+  ```solidity
+  function pwn() public { 
+      owner = msg.sender; 
+  }
+  ```
+  - **Critical Issue:** This function allows anyone to call it and become the owner of the contract. This is a significant vulnerability as it basically allows an attacker to take control of the contract. If the `Delegate` contract manages funds or owns other sensitive data, this could lead to a complete loss or misappropriation of assets.
+
+#### Delegation Contract
+
+- **Constructor:**
+  ```solidity
+  constructor(address _delegateAddress) public { 
+      delegate = Delegate(_delegateAddress); 
+      owner = msg.sender; 
+  }
+  ```
+  - **General Review:** The constructor sets the `delegate` address based on what is passed. If the provided delegate address is a malicious contract or already has vulnerable methods, it exposes the `Delegation` contract to attacks.
+
+- **Fallback Function:**
+  ```solidity
+  fallback() external { 
+      (bool result,) = address(delegate).delegatecall(msg.data);
+      if (result) { 
+          this; 
+      } 
+  }
+  ```
+  - **Critical Issue:** The use of `delegatecall` is highly dangerous, particularly with the current implementation. When `delegatecall` is executed:
+    - The context (storage, address, etc.) of the calling contract (`Delegation`) is used for the called contract (`Delegate`). 
+    - If there's any malicious function called on `Delegate`, it could manipulate the state of the `Delegation` contract, including changing the `owner`.
+    - The fallback function can be exploited if users can craft calls to `delegate` that invoke undesirable functions (e.g., calling `pwn`).
+
+#### Linking the Issues
+
+The design is particularly unsafe due to the insecurities found in both contracts working together. The vulnerabilities in `Delegate.pwn` and the way `Delegation` employs `delegatecall` can lead to:
+
+- **Unintended Ownership Change:** An attacker can call the fallback function with encoded data to invoke `pwn()`, delegating ownership of the `Delegation` contract to themselves, thus allowing them to control both contracts, straight to exploiting funds if any are held.
+
+- **No Access Control on Critical Functionalities:** The contracts lack mechanisms to restrict or validate caller intentions, allowing anyone to invoke critical state changes.
+
+### Recommendations
+
+1. **Remove the `pwn` function** or implement access control:
+    - If the intention is not to allow arbitrary ownership changes, this function should be removed or restricted to only the original owner/admin.
+
+2. **Implement Access Control:**
+    - Consider using a modifier to restrict access to sensitive methods (e.g., only the `owner` can call certain functions).
+
+3. **Avoid using `delegatecall` without strict controls:**
+    - Analyze the necessity of this pattern. If it is essential, ensure that your contracts are designed to handle unexpected calls securely and that the delegate contract functions cannot manipulate critical state.
+
+4. **Utilize Solidity versions with more security features:**
+    - If possible, update to later versions of Solidity that have improvements related to security and syntax.
+
+5. **Additional testing and auditing:**
+    - Thorough testing and possibly review by external auditors for any other edge cases or unforeseen interactions.
+
+By addressing these vulnerabilities, the contract can be made significantly more secure and reliable for its intended purpose.","Certainly! Let's analyze each function in the provided contracts, `Delegate` and `Delegation`, independently to identify security issues, potential vulnerabilities, and logic flaws.
+
+### Delegate Contract
+
+#### 1. Constructor
+```solidity
+constructor(address _owner) public {
+    owner = _owner;
+}
+```
+- **Review:**
+  - This constructor accepts an address as the `_owner` parameter and assigns it to the `owner` variable.
+- **Issues:**
+  - **Ownership Control:** The contract allows any address to be set as the owner during contract creation without any validation. If not controlled properly, it can lead to unauthorized access or control over the contract, especially if the `owner` is intended to be a specific account.
+
+#### 2. `pwn` Function
+```solidity
+function pwn() public {
+    owner = msg.sender;
+}
+```
+- **Review:**
+  - This function allows any caller to change the `owner` to `msg.sender`, essentially allowing anyone to become the owner.
+- **Critical Issues:**
+  - **Complete Ownership Takeover:** This function opens up a critical vulnerability because it allows any user to take control of the contract. An attacker can simply call this function to change the owner to themselves, leading to potential fund theft or malicious activities if the contract holds valuable assets or controls important functionalities.
+
+### Delegation Contract
+
+#### 3. Constructor
+```solidity
+constructor(address _delegateAddress) public {
+    delegate = Delegate(_delegateAddress);
+    owner = msg.sender;
+}
+```
+- **Review:**
+  - The constructor initializes the `delegate` variable with an address passed as `_delegateAddress`, and it sets the `owner` to the address that deploys the contract.
+- **Issues:**
+  - **Unsanitized Input:** If `_delegateAddress` points to a malicious or compromised `Delegate` contract, it could lead to security issues when interacting with this delegate contract.
+  - **Owner Mismanagement:** The `owner` is set correctly for the `Delegation` contract, though it could be threatened by the vulnerabilities in the `Delegate` contract.
+
+#### 4. Fallback Function
+```solidity
+fallback() external {
+    (bool result,) = address(delegate).delegatecall(msg.data);
+    if (result) {
+        this;
+    }
+}
+```
+- **Review:**
+  - The fallback function is designed to receive calls and delegate them to the `delegate` contract via `delegatecall`.
+- **Critical Issues:**
+  - **Unsafe Delegatecall:** Using `delegatecall` executes the context of the `Delegation` contract while executing the code from the `Delegate` contract. If the `Delegate` contract has functions that modify the state of `Delegation`, this can lead to severe vulnerabilities.
+    - An attacker could craft a transaction to call the `pwn()` function on `Delegate` through the fallback, making them the owner of the `Delegation` contract as well.
+  - **Lack of Access Control:** The fallback function can be invoked by any external call. There are no restrictions on what data can be sent or what is being executed through `delegatecall`.
+  - **Potential for Reentrancy:** If the delegated function allows further interactions that might lead to unexpected state modifications, it could expose the contract to reentrancy attacks, although in this specific case, it is less likely since there are no payable functions or funds received during the call.
+
+### Summary of Issues
+
+- **`Delegate` contract has critical vulnerabilities** allowing any address to become the owner due to unprotected functions.
+- **`Delegation` contract exposes itself to severe risks** by using `delegatecall` to an unverified delegate contract, particularly allowing access to its state management functions through potentially malicious calls.
+
+### Recommendations
+
+- **Implement Ownership Control:** Enforce checks on who can call owner-changing functions.
+- **Remove or Restrict the `pwn` Function:** Consider removing this function or applying strict controls (e.g. using `modifier onlyOwner`).
+- **Carefully Validate Delegate Contracts:** Ensure that the delegate contract is thoroughly vetted before deployment.
+- **Avoid `delegatecall` where unnecessary:** If delegation is needed, design it in a secure way that limits possible interactions that can lead to race conditions or exploitative state changes.
+- **Implement Security Best Practices:** Consider using established contracts such as OpenZeppelin's Ownable contract for ownership management and review functions for access controls.
+
+By addressing each of these independent issues, significant improvements in the contract’s security can be achieved."

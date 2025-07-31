@@ -1,0 +1,344 @@
+Contract Code,Stage 1 Audit Result,Stage 2 Audit Result
+"/*
+ * @source: https://github.com/kieranelby/KingOfTheEtherThrone/blob/v0.4.0/contracts/KingOfTheEtherThrone.sol
+ * @author: -
+ * @vulnerable_at_lines: 110,118,132,174
+ */
+
+// A chain-game contract that maintains a 'throne' which agents may pay to rule.
+// See www.kingoftheether.com & https://github.com/kieranelby/KingOfTheEtherThrone .
+// (c) Kieran Elby 2016. All rights reserved.
+// v0.4.0.
+// Inspired by ethereumpyramid.com and the (now-gone?) ""magnificent bitcoin gem"".
+
+// This contract lives on the blockchain at 0xb336a86e2feb1e87a328fcb7dd4d04de3df254d0
+// and was compiled (using optimization) with:
+// Solidity version: 0.2.1-fad2d4df/.-Emscripten/clang/int linked to libethereum
+
+// For future versions it would be nice to ...
+// TODO - enforce time-limit on reign (can contracts do that without external action)?
+// TODO - add a random reset?
+// TODO - add bitcoin bridge so agents can pay in bitcoin?
+// TODO - maybe allow different return payment address?
+
+//added pragma version
+pragma solidity ^0.4.0;
+
+contract KingOfTheEtherThrone {
+
+    struct Monarch {
+        // Address to which their compensation will be sent.
+        address etherAddress;
+        // A name by which they wish to be known.
+        // NB: Unfortunately ""string"" seems to expose some bugs in web3.
+        string name;
+        // How much did they pay to become monarch?
+        uint claimPrice;
+        // When did their rule start (based on block.timestamp)?
+        uint coronationTimestamp;
+    }
+
+    // The wizard is the hidden power behind the throne; they
+    // occupy the throne during gaps in succession and collect fees.
+    address wizardAddress;
+
+    // Used to ensure only the wizard can do some things.
+    modifier onlywizard { if (msg.sender == wizardAddress) _; }
+
+    // How much must the first monarch pay?
+    uint constant startingClaimPrice = 100 finney;
+
+    // The next claimPrice is calculated from the previous claimFee
+    // by multiplying by claimFeeAdjustNum and dividing by claimFeeAdjustDen -
+    // for example, num=3 and den=2 would cause a 50% increase.
+    uint constant claimPriceAdjustNum = 3;
+    uint constant claimPriceAdjustDen = 2;
+
+    // How much of each claimFee goes to the wizard (expressed as a fraction)?
+    // e.g. num=1 and den=100 would deduct 1% for the wizard, leaving 99% as
+    // the compensation fee for the usurped monarch.
+    uint constant wizardCommissionFractionNum = 1;
+    uint constant wizardCommissionFractionDen = 100;
+
+    // How much must an agent pay now to become the monarch?
+    uint public currentClaimPrice;
+
+    // The King (or Queen) of the Ether.
+    Monarch public currentMonarch;
+
+    // Earliest-first list of previous throne holders.
+    Monarch[] public pastMonarchs;
+
+    // Create a new throne, with the creator as wizard and first ruler.
+    // Sets up some hopefully sensible defaults.
+    function KingOfTheEtherThrone() {
+        wizardAddress = msg.sender;
+        currentClaimPrice = startingClaimPrice;
+        currentMonarch = Monarch(
+            wizardAddress,
+            ""[Vacant]"",
+            0,
+            block.timestamp
+        );
+    }
+
+    function numberOfMonarchs() constant returns (uint n) {
+        return pastMonarchs.length;
+    }
+
+    // Fired when the throne is claimed.
+    // In theory can be used to help build a front-end.
+    event ThroneClaimed(
+        address usurperEtherAddress,
+        string usurperName,
+        uint newClaimPrice
+    );
+
+    // Fallback function - simple transactions trigger this.
+    // Assume the message data is their desired name.
+    function() {
+        claimThrone(string(msg.data));
+    }
+
+    // Claim the throne for the given name by paying the currentClaimFee.
+    function claimThrone(string name) {
+
+        uint valuePaid = msg.value;
+
+        // If they paid too little, reject claim and refund their money.
+        if (valuePaid < currentClaimPrice) {
+            // <yes> <report> UNCHECKED_LL_CALLS
+            msg.sender.send(valuePaid);
+            return;
+        }
+
+        // If they paid too much, continue with claim but refund the excess.
+        if (valuePaid > currentClaimPrice) {
+            uint excessPaid = valuePaid - currentClaimPrice;
+            // <yes> <report> UNCHECKED_LL_CALLS
+            msg.sender.send(excessPaid);
+            valuePaid = valuePaid - excessPaid;
+        }
+
+        // The claim price payment goes to the current monarch as compensation
+        // (with a commission held back for the wizard). We let the wizard's
+        // payments accumulate to avoid wasting gas sending small fees.
+
+        uint wizardCommission = (valuePaid * wizardCommissionFractionNum) / wizardCommissionFractionDen;
+
+        uint compensation = valuePaid - wizardCommission;
+
+        if (currentMonarch.etherAddress != wizardAddress) {
+            // <yes> <report> UNCHECKED_LL_CALLS
+            currentMonarch.etherAddress.send(compensation);
+        } else {
+            // When the throne is vacant, the fee accumulates for the wizard.
+        }
+
+        // Usurp the current monarch, replacing them with the new one.
+        pastMonarchs.push(currentMonarch);
+        currentMonarch = Monarch(
+            msg.sender,
+            name,
+            valuePaid,
+            block.timestamp
+        );
+
+        // Increase the claim fee for next time.
+        // Stop number of trailing decimals getting silly - we round it a bit.
+        uint rawNewClaimPrice = currentClaimPrice * claimPriceAdjustNum / claimPriceAdjustDen;
+        if (rawNewClaimPrice < 10 finney) {
+            currentClaimPrice = rawNewClaimPrice;
+        } else if (rawNewClaimPrice < 100 finney) {
+            currentClaimPrice = 100 szabo * (rawNewClaimPrice / 100 szabo);
+        } else if (rawNewClaimPrice < 1 ether) {
+            currentClaimPrice = 1 finney * (rawNewClaimPrice / 1 finney);
+        } else if (rawNewClaimPrice < 10 ether) {
+            currentClaimPrice = 10 finney * (rawNewClaimPrice / 10 finney);
+        } else if (rawNewClaimPrice < 100 ether) {
+            currentClaimPrice = 100 finney * (rawNewClaimPrice / 100 finney);
+        } else if (rawNewClaimPrice < 1000 ether) {
+            currentClaimPrice = 1 ether * (rawNewClaimPrice / 1 ether);
+        } else if (rawNewClaimPrice < 10000 ether) {
+            currentClaimPrice = 10 ether * (rawNewClaimPrice / 10 ether);
+        } else {
+            currentClaimPrice = rawNewClaimPrice;
+        }
+
+        // Hail the new monarch!
+        ThroneClaimed(currentMonarch.etherAddress, currentMonarch.name, currentClaimPrice);
+    }
+
+    // Used only by the wizard to collect his commission.
+    function sweepCommission(uint amount) onlywizard {
+        // <yes> <report> UNCHECKED_LL_CALLS
+        wizardAddress.send(amount);
+    }
+
+    // Used only by the wizard to collect his commission.
+    function transferOwnership(address newOwner) onlywizard {
+        wizardAddress = newOwner;
+    }
+
+}
+","Here is a comprehensive security audit of the provided smart contract ""KingOfTheEtherThrone"":
+
+### General Observations:
+1. **Solidity Version**: The contract uses Solidity 0.4.0, which is outdated. Many improvements and security measures have been introduced in more recent versions. Consider upgrading to a modern version (0.8.x or later) for better safety features such as built-in overflow checks, improved error handling, and better syntax.
+
+2. **Unchecked Low-Level Calls**: There are multiple instances where `send` calls are being used without proper checks. These low-level calls can fail, and if they do, the outcome could lead to lost funds or unexpected states.
+
+### Function Audits:
+
+#### 1. **Constructor:**
+```solidity
+function KingOfTheEtherThrone() {
+    // sets initial values
+}
+```
+- **Issue**: This constructor initializes the contract state and sets the `wizardAddress` but does not use an `initializer` pattern suitable for upgradeable contracts. Not necessarily a vulnerability here, but an improvement consideration.
+
+#### 2. **numberOfMonarchs:**
+```solidity
+function numberOfMonarchs() constant returns (uint n) {
+    return pastMonarchs.length;
+}
+```
+- **No vulnerabilities found.** This function is simple and does not interact with any external calls.
+
+#### 3. **Fallback Function:**
+```solidity
+function() {
+    claimThrone(string(msg.data));
+}
+```
+- **Issue**: The fallback function assumes that the data passed (`msg.data`) can be safely cast to a `string`, which can be misleading. If the data format is incorrect or malicious, it could lead to unexpected behavior. There is no validation on the input.
+
+#### 4. **claimThrone:**
+```solidity
+function claimThrone(string name) { ... }
+```
+- **Critical Issues**:
+  - **Unchecked Low-Level Calls**:
+    - The calls to `msg.sender.send(valuePaid)`, `msg.sender.send(excessPaid)`, and `currentMonarch.etherAddress.send(compensation)` are not handling the failure of the send operation. If the send fails, the transaction will not revert, leading to lost funds.
+  - **Gas Limit Issues**: If the Sendees have a fallback function that consumes a lot of gas, they might not be able to receive funds.
+  - **Logic Issues**: The refund mechanism could allow users to manipulate their claim. If the user uses a large `msg.value` with a low `currentClaimPrice`, they can game the system.
+  - **Plausibility Check**: There's no restriction to limit the length or format of the name, leading to potential gas issues or network congestion for unusual input.
+
+#### 5. **sweepCommission:**
+```solidity
+function sweepCommission(uint amount) onlywizard { ... }
+```
+- **Critical Issue**: Similar to above, the `send` call is unchecked. If this fails, the wizard might be unable to withdraw the funds correctly.
+  
+#### 6. **transferOwnership:**
+```solidity
+function transferOwnership(address newOwner) onlywizard { ... }
+```
+- **No immediate vulnerabilities** found, but it's worth noting that if the wizard loses control of the address (due to being sent ether to a contract that can’t accept it), the contract may become unusable.
+
+### Overall Logic Flow:
+- **Central Authority and Control**: The `wizard` has too much control and can potentially exploit this for personal gain.
+- **No Time Constraints**: The TODO comments indicate that time constraints might be imposed. This is a significant benefit, as currently, a user can reign indefinitely if they hold the throne without risking challenge.
+
+### Recommendations:
+1. **Upgrade Solidity Version**: Move to a more recent version of Solidity.
+2. **Safe Transfer**: Use `transfer` or checks-effects-interactions patterns to prevent reentrancy and ensure the success of fund transfers.
+3. **Input Validation**: Add input validation for the `name` parameter in `claimThrone`.
+4. **Modularization**: Separate concerns and break down functions to reduce complexity.
+5. **Event Emissions**: Ensure that all significant state changes emit events for transparency and tracking.
+6. **Testing**: Conduct rigorous testing with various edge cases and attacks to ensure robustness.
+
+By implementing the recommendations and addressing the highlighted issues, you can significantly enhance the security and reliability of this smart contract.","Certainly! Let's go through each function independently, analyzing critical security issues and logic concerns for the `KingOfTheEtherThrone` contract.
+
+### 1. Constructor: `KingOfTheEtherThrone`
+```solidity
+function KingOfTheEtherThrone() {
+    wizardAddress = msg.sender;
+    currentClaimPrice = startingClaimPrice;
+    currentMonarch = Monarch(
+        wizardAddress,
+        ""[Vacant]"",
+        0,
+        block.timestamp
+    );
+}
+```
+#### Issues:
+- **Initial State**: The constructor appropriately initializes the contract but does not perform validations. However, since it can only be called once upon deployment, there are no immediate vulnerabilities.
+- **Ownership Model**: The `wizardAddress` is set to `msg.sender` without any subsequent checks. If the `wizard` loses access (e.g., by sending ether to the contract), they cannot regain control.
+
+### 2. Function: `numberOfMonarchs`
+```solidity
+function numberOfMonarchs() constant returns (uint n) {
+    return pastMonarchs.length;
+}
+```
+#### Issues:
+- **No Vulnerabilities**: This function simply returns the length of the `pastMonarchs`. It utilizes a read-only operation and does not perform any state changes or external calls.
+
+### 3. Fallback Function
+```solidity
+function() {
+    claimThrone(string(msg.data));
+}
+```
+#### Issues:
+- **Input Conversion Risk**: The conversion of `msg.data` to a string can lead to unexpected results if the data is not formatted as expected. There could be an invalid or very long input that adversely affects gas costs.
+- **Lack of Validation**: There are no constraints on the format of the input name, which could lead to potential issues or denial of service if the input is maliciously crafted.
+
+### 4. Function: `claimThrone`
+```solidity
+function claimThrone(string name) { ... }
+```
+#### Critical Issues:
+- **Unchecked Send Calls**:
+  - The contract uses `send()` to transfer ether without checking if it was successful:
+    ```solidity
+    msg.sender.send(valuePaid);
+    currentMonarch.etherAddress.send(compensation);
+    ```
+    If these calls fail (e.g., the recipient is a contract without a fallback function), the contract might lose funds, and the caller won't be reimbursed.
+  
+- **Refund Logic**: The mechanism to refund excess payments is straightforward, yet prone to abuse. A user could manipulate payments to exploit the remaining balance.
+- **Gas Limit Issues**: Using `.send()` means that recipients with complex fallback functions may face gas limitations. This could prevent some transactions from completing successfully.
+
+- **Monarch Logic**: 
+  - When a new monarch claims the throne, they can potentially usurp it without any immediate checks on legitimacy beyond the monetary requirement. There could thus be rapid leaping of thrones without actual gameplay.
+  
+- **Claim Price Calculation**:
+  - The logic to adjust the `currentClaimPrice` is convoluted and could miscalculate in certain conditions, which can lead to unintended low or high claim prices:
+    ```solidity
+    uint rawNewClaimPrice = currentClaimPrice * claimPriceAdjustNum / claimPriceAdjustDen;
+    ```
+
+### 5. Function: `sweepCommission`
+```solidity
+function sweepCommission(uint amount) onlywizard { ... }
+```
+#### Issues:
+- **Unchecked Send Calls**: Similar to the `claimThrone` function, the call to `send(amount)` does not check for success. If it fails, the wizard might be unable to recover the commission safely.
+- **Potential for Abuse**: The wizard has unilateral control over how much commission to collect, which may lead to trust issues with users.
+
+### 6. Function: `transferOwnership`
+```solidity
+function transferOwnership(address newOwner) onlywizard { ... }
+```
+#### Issues:
+- **No Check on New Owner**: There’s no validation to check if `newOwner` is a non-zero address. Setting it to zero would lock out the wizard from their duties.
+- **Execution Power**: The wizard can transfer ownership to any address (including malicious ones), leading to potential misuse of control if the wizard is compromised.
+
+### Overall Security Summary
+- The most significant vulnerabilities arise from the use of low-level calls like `send()` without checks for return values, and the lack of input validation could lead to errors or abuse.
+- Central control by the `wizard` creates a single point of failure and potential trust issues.
+- Logic surrounding throne claims and commission could lead to unintended mechanics that may be exploited.
+
+### Recommendations for Each Function
+1. **Constructor**: No changes; however, consider methods for transferring ownership to strengthen control transitions.
+2. **numberOfMonarchs**: No issues found, but ensure to document for UI developers.
+3. **Fallback Function**: Implement input validation. Consider redesigning how names are processed.
+4. **claimThrone**: Implement checks and event emissions for all transfers. Consider refactoring refund logic.
+5. **sweepCommission**: Change to a pattern that checks for success. Include access controls and validation checks for amounts.
+6. **transferOwnership**: Validate the `newOwner` address to prevent locking out the wizard and consider adding an event for ownership changes.
+
+This structured analysis should help clarify the potential vulnerabilities and provide a clear path for modifications to enhance the security of the contract."

@@ -1,0 +1,225 @@
+Contract Code,Stage 1 Audit Result,Stage 2 Audit Result
+"/*
+ * @source: https://docs.celo.org/blog/tutorials/solidity-vulnerabilities-delegated-call
+ * @author: 
+ * @vulnerable_at_lines: 29
+ */
+
+pragma solidity ^0.4.24;
+
+contract Lib {
+    uint public num;
+
+    function performOperation(uint _num) public {
+        num = _num;
+    }
+}
+
+contract Vulnerable {
+    address public lib;
+    address public owner;
+    uint public num;
+
+    constructor(address _lib) {
+        lib = _lib;
+        owner = msg.sender;
+    }
+
+    function performOperation(uint _num) public {
+        // <yes> <report> unsafe delegatecall
+        lib.delegatecall(abi.encodeWithSignature(""performOperation(uint256)"", _num));
+    }
+}
+
+
+// this contract is used to attack Vulnerable contract
+contract AttackVulnerable {
+
+    address public lib;
+    address public owner;
+    uint public num;
+
+    Vulnerable public vulnerable;
+
+    constructor(Vulnerable _vulnerable) {
+        vulnerable = Vulnerable(_vulnerable);
+    }
+
+    function attack() public {
+        vulnerable.performOperation(uint(address(this)));
+        vulnerable.performOperation(9);
+    }
+
+    // function signature must match Vulnerable.performOperation()
+    function performOperation(uint _num) public {
+        owner = msg.sender;
+    }
+}","### Security Audit of the Provided Contract
+
+#### Overview
+
+This contract comprises three major components: the `Lib` contract that has a function to perform an arithmetic operation, the `Vulnerable` contract that uses a `delegatecall` to the `Lib` contract, and the `AttackVulnerable`, which is specifically designed to exploit the `Vulnerable` contract. 
+
+#### Critical Issues Identified
+
+1. **Delegatecall Vulnerability**:
+   - The `performOperation` function in the `Vulnerable` contract uses `delegatecall` (Line 29). This presents a significant security risk because:
+     - **Context Inheritance**: `delegatecall` executes code from the `Lib` contract but retains the context of the `Vulnerable` contract. This means that any modifications to storage variables in `Lib` can overwrite the state of variables in `Vulnerable`, including sensitive variables such as `owner`.
+     - **Owner Manipulation**: An attacker can craft a malicious `performOperation` function in an attacking contract to manipulate the state of the `Vulnerable` contract. For instance, the `AttackVulnerable` contract alters the `owner` variable of `Vulnerable` by using its own `performOperation` function.
+
+2. **Lack of Access Control**:
+   - No access control mechanisms (e.g., `onlyOwner` modifiers) are implemented. Any address can invoke `Vulnerable.performOperation`, which means anyone can potentially invoke code that modifies the state of `Vulnerable`.
+
+3. **Arbitrary Storage Modification**:
+   - The `AttackVulnerable` contract explicitly calls `vulnerable.performOperation(uint(address(this)))`, which invokes an alternate implementation of `performOperation`. This allows an attacker to manipulate storage variables such as `owner` and `num` in the `Vulnerable` contract arbitrarily.
+
+4. **Potential for Denial of Service Attack**:
+   - If the `lib` address is changed to a contract that is either non-responsive or overly complex, the `delegatecall` can fail or revert the operation, leading to denial of service.
+
+5. **No Validation**:
+   - There are no checks in place to validate inputs or the integrity of the state during `delegatecall`, which could facilitate unexpected behaviors or state manipulation.
+
+#### Function-by-Function Analysis
+
+1. **Lib.performOperation(uint _num)**:
+   - No critical issues. Updates `num` within the `Lib` context. However, since this value is public, it could be exploited if `lib` gets replaced.
+
+2. **Vulnerable.performOperation(uint _num)**:
+   - **Critical Issue**: Uses `delegatecall`, allowing external manipulation of the state. If an attacker controls the `lib` address, they can execute arbitrary code that changes the state of `Vulnerable`.
+
+3. **AttackVulnerable.attack()**:
+   - **Critical Issue**: This function exploits the `delegatecall` vulnerability by directly modifying the `owner` of the `Vulnerable` contract.
+
+4. **AttackVulnerable.performOperation(uint _num)**:
+   - **Critical Issue**: This manipulates the `owner` variable in the `Vulnerable` contract. This function exploits the lack of restrictions on who can call `performOperation` in the `Vulnerable` contract.
+
+### Recommendations
+
+1. **Use Function Call Instead of Delegatecall**: 
+   - Replace `delegatecall` with a regular function call unless absolutely necessary. This inherently prevents critical state manipulation from external contracts.
+
+2. **Implement Access Control**:
+   - Introduce modifiers to restrict access to sensitive operations. For instance, only allow the contract owner to perform certain actions.
+
+3. **Input Validation**:
+   - Implement checks and validations on incoming parameters and states before performing sensitive state modifications.
+
+4. **Review Storage Management**:
+   - Ensure that any contract exposing storage is carefully reviewed for how state is managed and accessed.
+
+5. **Upgrade Solidity Version**:
+   - The version in use is outdated (0.4.24). Upgrading to the latest stable version can help improve security standards and functionality.
+
+### Conclusion
+
+This contract presents a number of critical vulnerabilities, particularly concerning the use of delegate calls and the lack of access controls. Immediate remedial actions are recommended to secure the contract against potential exploits.","Certainly! Let's break down the audit by analyzing each function independently, along with its context and potential vulnerabilities.
+
+### Contract: `Lib`
+
+#### Function: `performOperation(uint _num)`
+
+```solidity
+function performOperation(uint _num) public {
+    num = _num;
+}
+```
+
+#### Analysis:
+- **Functionality**: This function takes an unsigned integer as input and sets the state variable `num` to this value within the `Lib` contract.
+- **Vulnerabilities**:
+  - **None Identified**: This function executes as expected without any specific vulnerabilities. It does not have any access control or protection because it’s not being utilized in a sensitive context. However, its use in conjunction with delegate calls from the `Vulnerable` contract could be problematic, allowing arbitrary state manipulation if called via `delegatecall`.
+
+---
+
+### Contract: `Vulnerable`
+
+#### State Variables:
+- `address public lib;`
+- `address public owner;`
+- `uint public num;`
+
+#### Function: `performOperation(uint _num)`
+
+```solidity
+function performOperation(uint _num) public {
+    lib.delegatecall(abi.encodeWithSignature(""performOperation(uint256)"", _num));
+}
+```
+
+#### Analysis:
+- **Functionality**: This function uses `delegatecall` to invoke `performOperation` on the `lib` address, intended to execute the logic defined in the `Lib` contract.
+- **Vulnerabilities**:
+  - **Critical Issue - Unsafe Use of Delegatecall**: The use of `delegatecall` is a significant vulnerability. If an attacker can change the `lib` address to a malicious contract, they can execute arbitrary code in the context of the `Vulnerable` contract, potentially changing state variables like `owner` and `num`.
+  - **Lack of Access Control**: There are no modifiers preventing unauthorized users from calling this function. Thus, anyone can manipulate the state of this contract.
+  
+---
+
+### Contract: `AttackVulnerable`
+
+#### State Variables:
+- `address public lib;`
+- `address public owner;`
+- `uint public num;`
+- `Vulnerable public vulnerable;`
+
+#### Constructor:
+
+```solidity
+constructor(Vulnerable _vulnerable) {
+    vulnerable = Vulnerable(_vulnerable);
+}
+```
+
+#### Analysis:
+- **Functionality**: The constructor stores a reference to the `Vulnerable` contract.
+- **Vulnerabilities**: 
+  - **None Identified**: This constructor simply assigns a reference to the `Vulnerable` contract and does not present vulnerabilities in itself.
+
+---
+
+#### Function: `attack()`
+
+```solidity
+function attack() public {
+    vulnerable.performOperation(uint(address(this)));
+    vulnerable.performOperation(9);
+}
+```
+
+#### Analysis:
+- **Functionality**: The `attack()` function calls `performOperation` on the `vulnerable` contract, first passing the address of the `AttackVulnerable` contract itself and then the number `9`.
+- **Vulnerabilities**:
+  - **Critical Issue - Exploit of Delegatecall Vulnerability**: This function is specifically designed to exploit the `delegatecall` vulnerability in the `Vulnerable` contract. By first calling `performOperation` with its own address, it allows the attacker to set the `owner` variable of `Vulnerable` to the attacker’s address, essentially allowing ownership takeover.
+  - **No Access Control on Attack Function**: There’s no limitation on who can call this attack function, which means any user could invoke it, but it is designed for an attacker.
+
+---
+
+#### Function: `performOperation(uint _num)`
+
+```solidity
+function performOperation(uint _num) public {
+    owner = msg.sender;
+}
+```
+
+#### Analysis:
+- **Functionality**: This function assigns the calling address (`msg.sender`) to the `owner` variable in the `AttackVulnerable` contract.
+- **Vulnerabilities**:
+  - **Critical Issue - Manipulating Owner**: By using `delegatecall`, this function can be exploited to change the `owner` of the `Vulnerable` contract to the caller's address (in this case, an attack contract). This allows an imprudent actor to take control of the contract.
+
+---
+
+### Summary of Analysis
+
+1. **Lib.performOperation(uint _num)**: No direct vulnerabilities, but contextually vulnerable when `delegatecall` is used.
+   
+2. **Vulnerable.performOperation(uint _num)**: Critical vulnerabilities due to delegate call allowing state manipulation and lack of access control.
+
+3. **AttackVulnerable Constructor**: No vulnerabilities, merely references the `Vulnerable` contract.
+
+4. **AttackVulnerable.attack()**: Designed to exploit vulnerabilities in `Vulnerable`, allowing ownership manipulation.
+
+5. **AttackVulnerable.performOperation(uint _num)**: Function that can be exploited to change the `Vulnerable` contract's `owner`.
+
+### Overall Conclusion
+The `Vulnerable` contract's usage of `delegatecall` is a severe vulnerability in the current implementation, as it permits arbitrary code execution that can compromise the entire contract's state. In conjunction with the `AttackVulnerable` contract, an attacker can easily exploit this to change essential state variables and possibly drain funds or take over ownership. Immediate remediation is needed to secure the contracts against such attacks."

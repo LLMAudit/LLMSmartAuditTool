@@ -1,0 +1,1295 @@
+Contract Code,Stage 1 Audit Result,Stage 2 Audit Result
+"/*
+ * @source: https://etherscan.io/address/0x5ace17f87c7391e5792a7683069a8025b83bbd85#code
+ * @author: -
+ * @vulnerable_at_lines: 523,560,700,702,704,706,708,710,712,714,716,718
+ */
+
+pragma solidity ^0.4.13;
+
+library SafeMath {
+  function sub(uint a, uint b) internal returns (uint) {
+    assert(b <= a);
+    return a - b;
+  }
+  function add(uint a, uint b) internal returns (uint) {
+    uint c = a + b;
+    assert(c >= a);
+    return c;
+  }
+}
+
+contract ERC20Basic {
+  uint public totalSupply;
+  address public owner; 
+  //owner
+  address public animator; 
+  //animator
+  function balanceOf(address who) constant returns (uint);
+  function transfer(address to, uint value);
+  event Transfer(address indexed from, address indexed to, uint value);
+  function commitDividend(address who) internal; 
+  // pays remaining dividend
+}
+
+contract ERC20 is ERC20Basic {
+  function allowance(address owner, address spender) constant returns (uint);
+  function transferFrom(address from, address to, uint value);
+  function approve(address spender, uint value);
+  event Approval(address indexed owner, address indexed spender, uint value);
+}
+
+contract BasicToken is ERC20Basic {
+  using SafeMath for uint;
+  mapping(address => uint) balances;
+
+  modifier onlyPayloadSize(uint size) {
+     assert(msg.data.length >= size + 4);
+     _;
+  }
+  /**
+  * @dev transfer token for a specified address
+  * @param _to The address to transfer to.
+  * @param _value The amount to be transferred.
+  */
+  function transfer(address _to, uint _value) onlyPayloadSize(2 * 32) {
+    commitDividend(msg.sender);
+    balances[msg.sender] = balances[msg.sender].sub(_value);
+    if(_to == address(this)) {
+        commitDividend(owner);
+        balances[owner] = balances[owner].add(_value);
+        Transfer(msg.sender, owner, _value);
+    }
+    else {
+        commitDividend(_to);
+        balances[_to] = balances[_to].add(_value);
+        Transfer(msg.sender, _to, _value);
+    }
+  }
+  /**
+  * @dev Gets the balance of the specified address.
+  * @param _owner The address to query the the balance of.
+  * @return An uint representing the amount owned by the passed address.
+  */
+  function balanceOf(address _owner) constant returns (uint balance) {
+    return balances[_owner];
+  }
+}
+
+contract StandardToken is BasicToken, ERC20 {
+  mapping (address => mapping (address => uint)) allowed;
+
+  /**
+   * @dev Transfer tokens from one address to another
+   * @param _from address The address which you want to send tokens from
+   * @param _to address The address which you want to transfer to
+   * @param _value uint the amout of tokens to be transfered
+   */
+  function transferFrom(address _from, address _to, uint _value) onlyPayloadSize(3 * 32) {
+    var _allowance = allowed[_from][msg.sender];
+    commitDividend(_from);
+    commitDividend(_to);
+    balances[_to] = balances[_to].add(_value);
+    balances[_from] = balances[_from].sub(_value);
+    allowed[_from][msg.sender] = _allowance.sub(_value);
+    Transfer(_from, _to, _value);
+  }
+  /**
+   * @dev Aprove the passed address to spend the specified amount of tokens on beahlf of msg.sender.
+   * @param _spender The address which will spend the funds.
+   * @param _value The amount of tokens to be spent.
+   */
+  function approve(address _spender, uint _value) {
+    //  https://github.com/ethereum/EIPs/issues/20#issuecomment-263524729
+    assert(!((_value != 0) && (allowed[msg.sender][_spender] != 0)));
+    allowed[msg.sender][_spender] = _value;
+    Approval(msg.sender, _spender, _value);
+  }
+  /**
+   * @dev Function to check the amount of tokens than an owner allowed to a spender.
+   * @param _owner address The address which owns the funds.
+   * @param _spender address The address which will spend the funds.
+   * @return A uint specifing the amount of tokens still avaible for the spender.
+   */
+  function allowance(address _owner, address _spender) constant returns (uint remaining) {
+    return allowed[_owner][_spender];
+  }
+}
+
+/**
+ * @title SmartBillions contract
+ */
+contract SmartBillions is StandardToken {
+
+    // metadata
+    string public constant name = ""SmartBillions Token"";
+    string public constant symbol = ""PLAY"";
+    uint public constant decimals = 0;
+
+    // contract state
+    struct Wallet {
+        uint208 balance; 
+        // current balance of user
+    	uint16 lastDividendPeriod; 
+        // last processed dividend period of user's tokens
+    	uint32 nextWithdrawBlock; 
+        // next withdrawal possible after this block number
+    }
+    mapping (address => Wallet) wallets;
+    struct Bet {
+        uint192 value; 
+        // bet size
+        uint32 betHash; 
+        // selected numbers
+        uint32 blockNum; 
+        // blocknumber when lottery runs
+    }
+    mapping (address => Bet) bets;
+
+    uint public walletBalance = 0; 
+    // sum of funds in wallets
+
+    // investment parameters
+    uint public investStart = 1; 
+    // investment start block, 0: closed, 1: preparation
+    uint public investBalance = 0; 
+    // funding from investors
+    uint public investBalanceMax = 200000 ether; 
+    // maximum funding
+    uint public dividendPeriod = 1;
+    uint[] public dividends; 
+    // dividens collected per period, growing array
+
+    // betting parameters
+    uint public maxWin = 0; 
+    // maximum prize won
+    uint public hashFirst = 0; 
+    // start time of building hashes database
+    uint public hashLast = 0; 
+    // last saved block of hashes
+    uint public hashNext = 0; 
+    // next available bet block.number
+    uint public hashBetSum = 0; 
+    // used bet volume of next block
+    uint public hashBetMax = 5 ether; 
+    // maximum bet size per block
+    uint[] public hashes; 
+    // space for storing lottery results
+
+    // constants
+    //uint public constant hashesSize = 1024 ; 
+    // DEBUG ONLY !!!
+    uint public constant hashesSize = 16384 ; 
+    // 30 days of blocks
+    uint public coldStoreLast = 0 ; 
+    // block of last cold store transfer
+
+    // events
+    event LogBet(address indexed player, uint bethash, uint blocknumber, uint betsize);
+    event LogLoss(address indexed player, uint bethash, uint hash);
+    event LogWin(address indexed player, uint bethash, uint hash, uint prize);
+    event LogInvestment(address indexed investor, address indexed partner, uint amount);
+    event LogRecordWin(address indexed player, uint amount);
+    event LogLate(address indexed player,uint playerBlockNumber,uint currentBlockNumber);
+    event LogDividend(address indexed investor, uint amount, uint period);
+
+    modifier onlyOwner() {
+        assert(msg.sender == owner);
+        _;
+    }
+
+    modifier onlyAnimator() {
+        assert(msg.sender == animator);
+        _;
+    }
+
+    // constructor
+    function SmartBillions() {
+        owner = msg.sender;
+        animator = msg.sender;
+        wallets[owner].lastDividendPeriod = uint16(dividendPeriod);
+        dividends.push(0); 
+        // not used
+        dividends.push(0); 
+        // current dividend
+    }
+
+/* getters */
+
+    /**
+     * @dev Show length of allocated swap space
+     */
+    function hashesLength() constant external returns (uint) {
+        return uint(hashes.length);
+    }
+
+    /**
+     * @dev Show balance of wallet
+     * @param _owner The address of the account.
+     */
+    function walletBalanceOf(address _owner) constant external returns (uint) {
+        return uint(wallets[_owner].balance);
+    }
+
+    /**
+     * @dev Show last dividend period processed
+     * @param _owner The address of the account.
+     */
+    function walletPeriodOf(address _owner) constant external returns (uint) {
+        return uint(wallets[_owner].lastDividendPeriod);
+    }
+
+    /**
+     * @dev Show block number when withdraw can continue
+     * @param _owner The address of the account.
+     */
+    function walletBlockOf(address _owner) constant external returns (uint) {
+        return uint(wallets[_owner].nextWithdrawBlock);
+    }
+
+    /**
+     * @dev Show bet size.
+     * @param _owner The address of the player.
+     */
+    function betValueOf(address _owner) constant external returns (uint) {
+        return uint(bets[_owner].value);
+    }
+
+    /**
+     * @dev Show block number of lottery run for the bet.
+     * @param _owner The address of the player.
+     */
+    function betHashOf(address _owner) constant external returns (uint) {
+        return uint(bets[_owner].betHash);
+    }
+
+    /**
+     * @dev Show block number of lottery run for the bet.
+     * @param _owner The address of the player.
+     */
+    function betBlockNumberOf(address _owner) constant external returns (uint) {
+        return uint(bets[_owner].blockNum);
+    }
+
+    /**
+     * @dev Print number of block till next expected dividend payment
+     */
+    function dividendsBlocks() constant external returns (uint) {
+        if(investStart > 0) {
+            return(0);
+        }
+        uint period = (block.number - hashFirst) / (10 * hashesSize);
+        if(period > dividendPeriod) {
+            return(0);
+        }
+        return((10 * hashesSize) - ((block.number - hashFirst) % (10 * hashesSize)));
+    }
+
+/* administrative functions */
+
+    /**
+     * @dev Change owner.
+     * @param _who The address of new owner.
+     */
+    function changeOwner(address _who) external onlyOwner {
+        assert(_who != address(0));
+        commitDividend(msg.sender);
+        commitDividend(_who);
+        owner = _who;
+    }
+
+    /**
+     * @dev Change animator.
+     * @param _who The address of new animator.
+     */
+    function changeAnimator(address _who) external onlyAnimator {
+        assert(_who != address(0));
+        commitDividend(msg.sender);
+        commitDividend(_who);
+        animator = _who;
+    }
+
+    /**
+     * @dev Set ICO Start block.
+     * @param _when The block number of the ICO.
+     */
+    function setInvestStart(uint _when) external onlyOwner {
+        require(investStart == 1 && hashFirst > 0 && block.number < _when);
+        investStart = _when;
+    }
+
+    /**
+     * @dev Set maximum bet size per block
+     * @param _maxsum The maximum bet size in wei.
+     */
+    function setBetMax(uint _maxsum) external onlyOwner {
+        hashBetMax = _maxsum;
+    }
+
+    /**
+     * @dev Reset bet size accounting, to increase bet volume above safe limits
+     */
+    function resetBet() external onlyOwner {
+        hashNext = block.number + 3;
+        hashBetSum = 0;
+    }
+
+    /**
+     * @dev Move funds to cold storage
+     * @dev investBalance and walletBalance is protected from withdraw by owner
+     * @dev if funding is > 50% admin can withdraw only 0.25% of balance weakly
+     * @param _amount The amount of wei to move to cold storage
+     */
+    function coldStore(uint _amount) external onlyOwner {
+        houseKeeping();
+        require(_amount > 0 && this.balance >= (investBalance * 9 / 10) + walletBalance + _amount);
+        if(investBalance >= investBalanceMax / 2){ 
+            // additional jackpot protection
+            require((_amount <= this.balance / 400) && coldStoreLast + 4 * 60 * 24 * 7 <= block.number);
+        }
+        msg.sender.transfer(_amount);
+        coldStoreLast = block.number;
+    }
+
+    /**
+     * @dev Move funds to contract jackpot
+     */
+    function hotStore() payable external {
+        houseKeeping();
+    }
+
+/* housekeeping functions */
+
+    /**
+     * @dev Update accounting
+     */
+    function houseKeeping() public {
+        if(investStart > 1 && block.number >= investStart + (hashesSize * 5)){ 
+            // ca. 14 days
+            investStart = 0; 
+            // start dividend payments
+        }
+        else {
+            if(hashFirst > 0){
+		        uint period = (block.number - hashFirst) / (10 * hashesSize );
+                if(period > dividends.length - 2) {
+                    dividends.push(0);
+                }
+                if(period > dividendPeriod && investStart == 0 && dividendPeriod < dividends.length - 1) {
+                    dividendPeriod++;
+                }
+            }
+        }
+    }
+
+/* payments */
+
+    /**
+     * @dev Pay balance from wallet
+     */
+    function payWallet() public {
+        if(wallets[msg.sender].balance > 0 && wallets[msg.sender].nextWithdrawBlock <= block.number){
+            uint balance = wallets[msg.sender].balance;
+            wallets[msg.sender].balance = 0;
+            walletBalance -= balance;
+            pay(balance);
+        }
+    }
+
+    function pay(uint _amount) private {
+        uint maxpay = this.balance / 2;
+        if(maxpay >= _amount) {
+            msg.sender.transfer(_amount);
+            if(_amount > 1 finney) {
+                houseKeeping();
+            }
+        }
+        else {
+            uint keepbalance = _amount - maxpay;
+            walletBalance += keepbalance;
+            wallets[msg.sender].balance += uint208(keepbalance);
+            wallets[msg.sender].nextWithdrawBlock = uint32(block.number + 4 * 60 * 24 * 30);
+             // wait 1 month for more funds
+            msg.sender.transfer(maxpay);
+        }
+    }
+
+/* investment functions */
+
+    /**
+     * @dev Buy tokens
+     */
+    function investDirect() payable external {
+        invest(owner);
+    }
+
+    /**
+     * @dev Buy tokens with affiliate partner
+     * @param _partner Affiliate partner
+     */
+    function invest(address _partner) payable public {
+        //require(fromUSA()==false); // fromUSA() not yet implemented :-(
+        require(investStart > 1 && block.number < investStart + (hashesSize * 5) && investBalance < investBalanceMax);
+        uint investing = msg.value;
+        if(investing > investBalanceMax - investBalance) {
+            investing = investBalanceMax - investBalance;
+            investBalance = investBalanceMax;
+            investStart = 0; 
+            // close investment round
+            msg.sender.transfer(msg.value.sub(investing)); 
+            // send back funds immediately
+        }
+        else{
+            investBalance += investing;
+        }
+        if(_partner == address(0) || _partner == owner){
+            walletBalance += investing / 10;
+            wallets[owner].balance += uint208(investing / 10);} 
+            // 10% for marketing if no affiliates
+        else{
+            walletBalance += (investing * 5 / 100) * 2;
+            wallets[owner].balance += uint208(investing * 5 / 100); 
+            // 5% initial marketing funds
+            wallets[_partner].balance += uint208(investing * 5 / 100);} 
+            // 5% for affiliates
+        wallets[msg.sender].lastDividendPeriod = uint16(dividendPeriod); 
+        // assert(dividendPeriod == 1);
+        uint senderBalance = investing / 10**15;
+        uint ownerBalance = investing * 16 / 10**17  ;
+        uint animatorBalance = investing * 10 / 10**17  ;
+        balances[msg.sender] += senderBalance;
+        balances[owner] += ownerBalance ; 
+        // 13% of shares go to developers
+        balances[animator] += animatorBalance ; 
+        // 8% of shares go to animator
+        totalSupply += senderBalance + ownerBalance + animatorBalance;
+        Transfer(address(0),msg.sender,senderBalance); 
+        // for etherscan
+        Transfer(address(0),owner,ownerBalance); 
+        // for etherscan
+        Transfer(address(0),animator,animatorBalance); 
+        // for etherscan
+        LogInvestment(msg.sender,_partner,investing);
+    }
+
+    /**
+     * @dev Delete all tokens owned by sender and return unpaid dividends and 90% of initial investment
+     */
+    function disinvest() external {
+        require(investStart == 0);
+        commitDividend(msg.sender);
+        uint initialInvestment = balances[msg.sender] * 10**15;
+        Transfer(msg.sender,address(0),balances[msg.sender]); 
+        // for etherscan
+        delete balances[msg.sender]; 
+        // totalSupply stays the same, investBalance is reduced
+        investBalance -= initialInvestment;
+        wallets[msg.sender].balance += uint208(initialInvestment * 9 / 10);
+        payWallet();
+    }
+
+    /**
+     * @dev Pay unpaid dividends
+     */
+    function payDividends() external {
+        require(investStart == 0);
+        commitDividend(msg.sender);
+        payWallet();
+    }
+
+    /**
+     * @dev Commit remaining dividends before transfer of tokens
+     */
+    function commitDividend(address _who) internal {
+        uint last = wallets[_who].lastDividendPeriod;
+        if((balances[_who]==0) || (last==0)){
+            wallets[_who].lastDividendPeriod=uint16(dividendPeriod);
+            return;
+        }
+        if(last==dividendPeriod) {
+            return;
+        }
+        uint share = balances[_who] * 0xffffffff / totalSupply;
+        uint balance = 0;
+        for(;last<dividendPeriod;last++) {
+            balance += share * dividends[last];
+        }
+        balance = (balance / 0xffffffff);
+        walletBalance += balance;
+        wallets[_who].balance += uint208(balance);
+        wallets[_who].lastDividendPeriod = uint16(last);
+        LogDividend(_who,balance,last);
+    }
+
+/* lottery functions */
+
+    function betPrize(Bet _player, uint24 _hash) constant private returns (uint) { 
+        // house fee 13.85%
+        uint24 bethash = uint24(_player.betHash);
+        uint24 hit = bethash ^ _hash;
+        uint24 matches =
+            ((hit & 0xF) == 0 ? 1 : 0 ) +
+            ((hit & 0xF0) == 0 ? 1 : 0 ) +
+            ((hit & 0xF00) == 0 ? 1 : 0 ) +
+            ((hit & 0xF000) == 0 ? 1 : 0 ) +
+            ((hit & 0xF0000) == 0 ? 1 : 0 ) +
+            ((hit & 0xF00000) == 0 ? 1 : 0 );
+        if(matches == 6){
+            return(uint(_player.value) * 7000000);
+        }
+        if(matches == 5){
+            return(uint(_player.value) * 20000);
+        }
+        if(matches == 4){
+            return(uint(_player.value) * 500);
+        }
+        if(matches == 3){
+            return(uint(_player.value) * 25);
+        }
+        if(matches == 2){
+            return(uint(_player.value) * 3);
+        }
+        return(0);
+    }
+
+    /**
+     * @dev Check if won in lottery
+     */
+    function betOf(address _who) constant external returns (uint)  {
+        Bet memory player = bets[_who];
+        if( (player.value==0) ||
+            (player.blockNum<=1) ||
+            (block.number<player.blockNum) ||
+            (block.number>=player.blockNum + (10 * hashesSize))){
+            return(0);
+        }
+        if(block.number<player.blockNum+256){
+            // <yes> <report> BAD_RANDOMNESS
+            return(betPrize(player,uint24(block.blockhash(player.blockNum))));
+        }
+        if(hashFirst>0){
+            uint32 hash = getHash(player.blockNum);
+            if(hash == 0x1000000) { 
+                // load hash failed :-(, return funds
+                return(uint(player.value));
+            }
+            else{
+                return(betPrize(player,uint24(hash)));
+            }
+	}
+        return(0);
+    }
+
+    /**
+     * @dev Check if won in lottery
+     */
+    function won() public {
+        Bet memory player = bets[msg.sender];
+        if(player.blockNum==0){ 
+            // create a new player
+            bets[msg.sender] = Bet({value: 0, betHash: 0, blockNum: 1});
+            return;
+        }
+        if((player.value==0) || (player.blockNum==1)){
+            payWallet();
+            return;
+        }
+        require(block.number>player.blockNum); 
+        // if there is an active bet, throw()
+        if(player.blockNum + (10 * hashesSize) <= block.number){ 
+            // last bet too long ago, lost !
+            LogLate(msg.sender,player.blockNum,block.number);
+            bets[msg.sender] = Bet({value: 0, betHash: 0, blockNum: 1});
+            return;
+        }
+        uint prize = 0;
+        uint32 hash = 0;
+        if(block.number<player.blockNum+256){
+            // <yes> <report> BAD_RANDOMNESS
+            hash = uint24(block.blockhash(player.blockNum));
+            prize = betPrize(player,uint24(hash));
+        }
+        else {
+            if(hashFirst>0){ 
+                // lottery is open even before swap space (hashes) is ready, but player must collect results within 256 blocks after run
+                hash = getHash(player.blockNum);
+                if(hash == 0x1000000) { 
+                    // load hash failed :-(, return funds
+                    prize = uint(player.value);
+                }
+                else{
+                    prize = betPrize(player,uint24(hash));
+                }
+	    }
+            else{
+                LogLate(msg.sender,player.blockNum,block.number);
+                bets[msg.sender] = Bet({value: 0, betHash: 0, blockNum: 1});
+                return();
+            }
+        }
+        bets[msg.sender] = Bet({value: 0, betHash: 0, blockNum: 1});
+        if(prize>0) {
+            LogWin(msg.sender,uint(player.betHash),uint(hash),prize);
+            if(prize > maxWin){
+                maxWin = prize;
+                LogRecordWin(msg.sender,prize);
+            }
+            pay(prize);
+        }
+        else{
+            LogLoss(msg.sender,uint(player.betHash),uint(hash));
+        }
+    }
+
+    /**
+     * @dev Send ether to buy tokens during ICO
+     * @dev or send less than 1 ether to contract to play
+     * @dev or send 0 to collect prize
+     */
+    function () payable external {
+        if(msg.value > 0){
+            if(investStart>1){ 
+                // during ICO payment to the contract is treated as investment
+                invest(owner);
+            }
+            else{ 
+                // if not ICO running payment to contract is treated as play
+                play();
+            }
+            return;
+        }
+        //check for dividends and other assets
+        if(investStart == 0 && balances[msg.sender]>0){
+            commitDividend(msg.sender);}
+        won(); 
+        // will run payWallet() if nothing else available
+    }
+
+    /**
+     * @dev Play in lottery
+     */
+    function play() payable public returns (uint) {
+        return playSystem(uint(sha3(msg.sender,block.number)), address(0));
+    }
+
+    /**
+     * @dev Play in lottery with random numbers
+     * @param _partner Affiliate partner
+     */
+    function playRandom(address _partner) payable public returns (uint) {
+        return playSystem(uint(sha3(msg.sender,block.number)), _partner);
+    }
+
+    /**
+     * @dev Play in lottery with own numbers
+     * @param _partner Affiliate partner
+     */
+    function playSystem(uint _hash, address _partner) payable public returns (uint) {
+        won(); 
+        // check if player did not win
+        uint24 bethash = uint24(_hash);
+        require(msg.value <= 1 ether && msg.value < hashBetMax);
+        if(msg.value > 0){
+            if(investStart==0) { 
+                // dividends only after investment finished
+                dividends[dividendPeriod] += msg.value / 20; 
+                // 5% dividend
+            }
+            if(_partner != address(0)) {
+                uint fee = msg.value / 100;
+                walletBalance += fee;
+                wallets[_partner].balance += uint208(fee); 
+                // 1% for affiliates
+            }
+            if(hashNext < block.number + 3) {
+                hashNext = block.number + 3;
+                hashBetSum = msg.value;
+            }
+            else{
+                if(hashBetSum > hashBetMax) {
+                    hashNext++;
+                    hashBetSum = msg.value;
+                }
+                else{
+                    hashBetSum += msg.value;
+                }
+            }
+            bets[msg.sender] = Bet({value: uint192(msg.value), betHash: uint32(bethash), blockNum: uint32(hashNext)});
+            LogBet(msg.sender,uint(bethash),hashNext,msg.value);
+        }
+        putHash(); 
+        // players help collecing data
+        return(hashNext);
+    }
+
+/* database functions */
+
+    /**
+     * @dev Create hash data swap space
+     * @param _sadd Number of hashes to add (<=256)
+     */
+    function addHashes(uint _sadd) public returns (uint) {
+        require(hashFirst == 0 && _sadd > 0 && _sadd <= hashesSize);
+        uint n = hashes.length;
+        if(n + _sadd > hashesSize){
+            hashes.length = hashesSize;
+        }
+        else{
+            hashes.length += _sadd;
+        }
+        for(;n<hashes.length;n++){ 
+            // make sure to burn gas
+            hashes[n] = 1;
+        }
+        if(hashes.length>=hashesSize) { 
+            // assume block.number > 10
+            hashFirst = block.number - ( block.number % 10);
+            hashLast = hashFirst;
+        }
+        return(hashes.length);
+    }
+
+    /**
+     * @dev Create hash data swap space, add 128 hashes
+     */
+    function addHashes128() external returns (uint) {
+        return(addHashes(128));
+    }
+
+    function calcHashes(uint32 _lastb, uint32 _delta) constant private returns (uint) {
+        // <yes> <report> BAD_RANDOMNESS
+        return( ( uint(block.blockhash(_lastb  )) & 0xFFFFFF )
+        // <yes> <report> BAD_RANDOMNESS
+            | ( ( uint(block.blockhash(_lastb+1)) & 0xFFFFFF ) << 24 )
+            // <yes> <report> BAD_RANDOMNESS
+            | ( ( uint(block.blockhash(_lastb+2)) & 0xFFFFFF ) << 48 )
+            // <yes> <report> BAD_RANDOMNESS
+            | ( ( uint(block.blockhash(_lastb+3)) & 0xFFFFFF ) << 72 )
+            // <yes> <report> BAD_RANDOMNESS
+            | ( ( uint(block.blockhash(_lastb+4)) & 0xFFFFFF ) << 96 )
+            // <yes> <report> BAD_RANDOMNESS
+            | ( ( uint(block.blockhash(_lastb+5)) & 0xFFFFFF ) << 120 )
+            // <yes> <report> BAD_RANDOMNESS
+            | ( ( uint(block.blockhash(_lastb+6)) & 0xFFFFFF ) << 144 )
+            // <yes> <report> BAD_RANDOMNESS
+            | ( ( uint(block.blockhash(_lastb+7)) & 0xFFFFFF ) << 168 )
+            // <yes> <report> BAD_RANDOMNESS
+            | ( ( uint(block.blockhash(_lastb+8)) & 0xFFFFFF ) << 192 )
+            // <yes> <report> BAD_RANDOMNESS
+            | ( ( uint(block.blockhash(_lastb+9)) & 0xFFFFFF ) << 216 )
+            | ( ( uint(_delta) / hashesSize) << 240));
+    }
+
+    function getHash(uint _block) constant private returns (uint32) {
+        uint delta = (_block - hashFirst) / 10;
+        uint hash = hashes[delta % hashesSize];
+        if(delta / hashesSize != hash >> 240) {
+            return(0x1000000); 
+            // load failed, incorrect data in hashes
+        }
+        uint slotp = (_block - hashFirst) % 10;
+        return(uint32((hash >> (24 * slotp)) & 0xFFFFFF));
+    }
+
+    /**
+     * @dev Fill hash data
+     */
+    function putHash() public returns (bool) {
+        uint lastb = hashLast;
+        if(lastb == 0 || block.number <= lastb + 10) {
+            return(false);
+        }
+        uint blockn256;
+        if(block.number<256) { 
+            // useless test for testnet :-(
+            blockn256 = 0;
+        }
+        else{
+            blockn256 = block.number - 256;
+        }
+        if(lastb < blockn256) {
+            uint num = blockn256;
+            num += num % 10;
+            lastb = num;
+        }
+        uint delta = (lastb - hashFirst) / 10;
+        hashes[delta % hashesSize] = calcHashes(uint32(lastb),uint32(delta));
+        hashLast = lastb + 10;
+        return(true);
+    }
+
+    /**
+     * @dev Fill hash data many times
+     * @param _num Number of iterations
+     */
+    function putHashes(uint _num) external {
+        uint n=0;
+        for(;n<_num;n++){
+            if(!putHash()){
+                return;
+            }
+        }
+    }
+
+}
+","Upon reviewing the provided Solidity smart contract, I have identified several critical issues that may lead to the potential loss of funds or exploitation. The issues span various categories including potential reentrancy attacks, improper access controls, integer overflows/underflows (despite using SafeMath), logical errors, and randomness issues. Below is a detailed analysis of the contract, focusing on key functions and their vulnerabilities.
+
+### General Observations:
+1. **Pragma Version**: The contract uses an outdated pragma version (`pragma solidity ^0.4.13;`). This version does not support useful functions from newer Solidity versions like `require`, declarations of `view`, `pure`, and improved checks against overflows.
+
+2. **Use of `assert`**: The contract employs `assert`, which reverts the transaction and consumes all gas if the condition is false. It's more prudent to use `require` for input validation to provide a clearer error message and allow for gas refunds.
+
+### Specific Vulnerabilities:
+
+#### 1. **Payable Function Risks**
+   The fallback function directly allows for Ether to be sent without any restrictions and could lead to unintentional deposits or fund lockups:
+   ```solidity
+   function () payable external {
+       ...
+   }
+   ```
+   - **Risk**: If a user accidentally sends Ether while the invest phase is not active, it could cause confusion as funds would not be treated correctly.
+   
+#### 2. **Reentrancy Considerations**
+   Functions like `pay()` and any other function that modifies state after sending Ether can be vulnerable to reentrancy attacks (although `transfer` is generally safe due to gas stipends).
+   - **Recommendation**: Consider utilizing the “checks-effects-interactions” pattern more strictly, ensuring that state changes happen before external calls are made.
+
+#### 3. **Investment Logic Issues**
+   In the `invest()` function, if the investment exceeds the current balance, users may inadvertently receive unallocated funds:
+   ```solidity
+   require(investing <= investBalanceMax - investBalance); // Line that may refund ether improperly
+   ```
+   - **Suggestion**: Properly handle refunds to revert the transaction if the `investing` amount is more than what can be accepted.
+
+#### 4. **Improper Dividend Assignment**
+   The `commitDividend()` function shows potential flaws:
+   ```solidity
+   if (last == dividendPeriod) { return; }
+   ...
+   balance += share * dividends[last]; 
+   ```
+   - **Risk**: If dividends are not properly managed, it can lead to users accumulating incorrect balances. More checks are required to ensure share calculations are done based on valid dividend periods.
+
+#### 5. **Lottery Betting Logic**
+   The betting logic relies heavily on blockhash and could lead to predictability:
+   ```solidity
+   block.blockhash(player.blockNum)
+   ```
+   - **Security Concern**: Using blockhashes for randomness is not secure, as miners can manipulate blockhashes.
+   - **Recommendation**: Consider integrating a verifiable randomness source, like Chainlink VRF or similar to mitigate manipulation risks.
+
+#### 6. **Cold Store Withdrawal Logic**:
+   The `coldStore()` function has a potential issue with timing:
+   ```solidity
+   require((_amount <= this.balance / 400) && coldStoreLast + 4 * 60 * 24 * 7 <= block.number);
+   ```
+   - **Risk**: This leads to overly permissive withdrawal criteria and potential fund drainage based on the timing of withdrawals.
+
+#### 7. **Hot and Cold Store Handling**:
+   The distinction between hot and cold storage lacks effective management and may lead to misappropriation of user funds.
+
+#### 8. **Redundant Variables and Logic**:
+   The contract has redundant variables that may lead to bloated gas costs and complexity.
+
+### Recommendations for Addressing Issues:
+1. **Upgrade the Solidity Version**: Move to a newer version for best practices and security features.
+2. **Use `require` for Conditional Checks**: Replace `assert` with `require` to provide clear feedback on failures and conserve gas for reverted transactions.
+3. **Implement Checks-Effects-Interactions Pattern**: Ensure all state changes happen prior to making any external calls.
+4. **Review Randomness Source**: Remove reliance on blockhashes for bet-related outcomes and adopt structured randomness methodologies.
+5. **Test Thoroughly**: Conduct a penetration test focusing on each function—especially those that deal with financial transactions—to uncover and fix hidden issues.
+
+### Conclusion
+The `SmartBillions` contract appears to lack adequate security and validation measures, which could lead to various vulnerabilities and financial loss. Suggested improvements highlighted above should be reviewed and implemented as necessary.","Certainly! Let's perform a detailed analysis of the smart contract by examining each function independently, identifying potential vulnerabilities, logic issues, and security risks. We'll go through the key functions in the smart contract one by one.
+
+### 1. `function hashLength()`
+```solidity
+function hashesLength() constant external returns (uint) {
+    return uint(hashes.length);
+}
+```
+- **Observation**: This function simply returns the length of the hashes array.
+- **Vulnerability**: No vulnerabilities are present; however, consider renaming for clarity, e.g., `getHashesLength()`.
+- **Recommendation**: None.
+
+### 2. `function walletBalanceOf(address _owner)`
+```solidity
+function walletBalanceOf(address _owner) constant external returns (uint) {
+    return uint(wallets[_owner].balance);
+}
+```
+- **Observation**: Returns the balance of a specified wallet.
+- **Vulnerability**: No vulnerabilities present; the use of `constant` is appropriate.
+- **Recommendation**: None.
+
+### 3. `function walletPeriodOf(address _owner)`
+```solidity
+function walletPeriodOf(address _owner) constant external returns (uint) {
+    return uint(wallets[_owner].lastDividendPeriod);
+}
+```
+- **Observation**: Returns the last dividend period processed for a specific wallet.
+- **Vulnerability**: No vulnerabilities present. 
+- **Recommendation**: None.
+
+### 4. `function walletBlockOf(address _owner)`
+```solidity
+function walletBlockOf(address _owner) constant external returns (uint) {
+    return uint(wallets[_owner].nextWithdrawBlock);
+}
+```
+- **Observation**: Returns the next block number when withdrawals can occur for the specified wallet.
+- **Vulnerability**: None.
+- **Recommendation**: None.
+
+### 5. `function betValueOf(address _owner)`
+```solidity
+function betValueOf(address _owner) constant external returns (uint) {
+    return uint(bets[_owner].value);
+}
+```
+- **Observation**: Returns the bet value for a particular player.
+- **Vulnerability**: No vulnerabilities present.
+- **Recommendation**: None.
+
+### 6. `function betHashOf(address _owner)`
+```solidity
+function betHashOf(address _owner) constant external returns (uint) {
+    return uint(bets[_owner].betHash);
+}
+```
+- **Observation**: Returns the bet hash for a specific player.
+- **Vulnerability**: No vulnerabilities present.
+- **Recommendation**: None.
+
+### 7. `function betBlockNumberOf(address _owner)`
+```solidity
+function betBlockNumberOf(address _owner) constant external returns (uint) {
+    return uint(bets[_owner].blockNum);
+}
+```
+- **Observation**: Returns the block number of the lottery for a specific bet.
+- **Vulnerability**: None.
+- **Recommendation**: None.
+
+### 8. `function dividendsBlocks()`
+```solidity
+function dividendsBlocks() constant external returns (uint) {
+    if(investStart > 0) {
+        return(0);
+    }
+    uint period = (block.number - hashFirst) / (10 * hashesSize);
+    if(period > dividendPeriod) {
+        return(0);
+    }
+    return((10 * hashesSize) - ((block.number - hashFirst) % (10 * hashesSize)));
+}
+```
+- **Observation**: Calculates and returns the number of blocks until the next dividend payment.
+- **Vulnerability**: If `hashFirst` is `0`, division by zero could occur.
+- **Recommendation**: Add a require statement to check that `hashFirst` is not zero.
+
+### 9. `function changeOwner(address _who)`
+```solidity
+function changeOwner(address _who) external onlyOwner {
+    assert(_who != address(0));
+    commitDividend(msg.sender);
+    commitDividend(_who);
+    owner = _who;
+}
+```
+- **Observation**: Allows the owner to change the ownership of the contract.
+- **Vulnerability**: No direct vulnerabilities, but the use of `assert` can cause loss of gas. 
+- **Recommendation**: Replace `assert` with `require`.
+
+### 10. `function changeAnimator(address _who)`
+```solidity
+function changeAnimator(address _who) external onlyAnimator {
+    assert(_who != address(0));
+    commitDividend(msg.sender);
+    commitDividend(_who);
+    animator = _who;
+}
+```
+- **Observation**: Allows the animator to be changed.
+- **Vulnerability**: Same as above, replace `assert`.
+- **Recommendation**: Replace `assert` with `require`.
+
+### 11. `function setInvestStart(uint _when)`
+```solidity
+function setInvestStart(uint _when) external onlyOwner {
+    require(investStart == 1 && hashFirst > 0 && block.number < _when);
+    investStart = _when;
+}
+```
+- **Observation**: Sets the investment start block.
+- **Vulnerability**: This function can be manipulated if not properly managed.
+- **Recommendation**: Ensure proper sequence of state transitions.
+
+### 12. `function setBetMax(uint _maxsum)`
+```solidity
+function setBetMax(uint _maxsum) external onlyOwner {
+    hashBetMax = _maxsum;
+}
+```
+- **Observation**: Allows the owner to set the maximum bet size.
+- **Vulnerability**: No direct vulnerabilities present.
+- **Recommendation**: None.
+
+### 13. `function resetBet()`
+```solidity
+function resetBet() external onlyOwner {
+    hashNext = block.number + 3;
+    hashBetSum = 0;
+}
+```
+- **Observation**: Resets bet accounting for the owner.
+- **Vulnerability**: Can be abused by the owner to reset betting status at any time.
+- **Recommendation**: Consider adding conditions on its use or time restrictions.
+
+### 14. `function coldStore(uint _amount)`
+```solidity
+function coldStore(uint _amount) external onlyOwner {
+    houseKeeping();
+    require(_amount > 0 && this.balance >= (investBalance * 9 / 10) + walletBalance + _amount);
+    // other conditions...
+}
+```
+- **Observation**: Moves funds to cold storage based on certain conditions.
+- **Vulnerability**: This function may allow the owner to withdraw more than intended if not properly validated.
+- **Recommendation**: Separate fund statistics should be carefully handled.
+
+### 15. `function hotStore()`
+```solidity
+function hotStore() payable external {
+    houseKeeping();
+}
+```
+- **Observation**: Accepts Ether deposits into the contract.
+- **Vulnerability**: No protections against sending the wrong amount, or during certain contract states.
+- **Recommendation**: None.
+
+### 16. `function houseKeeping()`
+```solidity
+function houseKeeping() public {
+    if(investStart > 1 && block.number >= investStart + (hashesSize * 5)) { 
+        investStart = 0; // start dividend payments
+    }
+    else {
+        // Check dividend periods 
+    }
+}
+```
+- **Observation**: Updates balances and state based on conditions.
+- **Vulnerability**: Reentrancy risk if called externally.
+- **Recommendation**: Consider limiting access or changing state before external invocations.
+
+### 17. `function payWallet()`
+```solidity
+function payWallet() public {
+    if(wallets[msg.sender].balance > 0 && wallets[msg.sender].nextWithdrawBlock <= block.number) {
+        uint balance = wallets[msg.sender].balance;
+        wallets[msg.sender].balance = 0;
+        walletBalance -= balance;
+        pay(balance);
+    }
+}
+```
+- **Observation**: Handles payments from a user's wallet.
+- **Vulnerability**: Potential for reentrancy attacks depending on implementation of `pay()`.
+- **Recommendation**: Ensure that balance management is done prior to the call.
+
+### 18. `function pay(uint _amount)`
+```solidity
+function pay(uint _amount) private {
+    uint maxpay = this.balance / 2;
+    if(maxpay >= _amount) {
+        msg.sender.transfer(_amount);
+        if(_amount > 1 finney) {
+            houseKeeping();
+        }
+    } else {
+        uint keepbalance = _amount - maxpay;
+        walletBalance += keepbalance;
+        wallets[msg.sender].balance += uint208(keepbalance);
+        wallets[msg.sender].nextWithdrawBlock = uint32(block.number + 4 * 60 * 24 * 30);
+        // wait 1 month for more funds
+        msg.sender.transfer(maxpay);
+    }
+}
+```
+- **Observation**: Distributes Ether to the user.
+- **Vulnerability**: Potential for reentrancy attacks. Also, once again, there’s a risk of significant delays before users can withdraw remaining balances.
+- **Recommendation**: Ensure checks-effects-interactions pattern strictly while adding more state checks.
+
+### 19. `function investDirect()`
+```solidity
+function investDirect() payable external {
+    invest(owner);
+}
+```
+- **Observation**: Allows direct investment into the contract.
+- **Vulnerability**: If `invest` fails, users could lose ETH immediately.
+- **Recommendation**: Implement checks to prevent misuse.
+
+### 20. `function invest(address _partner)`
+```solidity
+function invest(address _partner) payable public {
+    require(investStart > 1 && block.number < investStart + (hashesSize * 5) && investBalance < investBalanceMax);
+    // handle investment logic...
+}
+```
+- **Observation**: Core investment logic function. It also provides a mechanism for handling affiliate partners.
+- **Vulnerability**: Improper handling of refunds could lead to fund loss. The logic allows an unchecked flow which could lead to over-extension of balanc
+- **Recommendation**: Validate amounts before processing, ensure proper refunds.
+
+### 21. `function disinvest()`
+```solidity
+function disinvest() external {
+    require(investStart == 0);
+    commitDividend(msg.sender);
+    uint initialInvestment = balances[msg.sender] * 10**15;
+    Transfer(msg.sender,address(0),balances[msg.sender]);
+    delete balances[msg.sender];
+    investBalance -= initialInvestment;
+    wallets[msg.sender].balance += uint208(initialInvestment * 9 / 10);
+    payWallet();
+}
+```
+- **Observation**: Allows users to withdraw funds under certain conditions.
+- **Vulnerability**: Users could lose significant funds if they try to disinvest before appropriate timings.
+- **Recommendation**: Proper handling of user states to prevent abrupt disinvestment.
+
+### 22. `function payDividends()`
+```solidity
+function payDividends() external {
+    require(investStart == 0);
+    commitDividend(msg.sender);
+    payWallet();
+}
+```
+- **Observation**: Claims dividends for eligible users.
+- **Vulnerability**: If no dividends are available or incorrect calculations, users may receive unexpected behavior.
+- **Recommendation**: Validate dividend eligibility upfront.
+
+### 23. `function commitDividend(address _who)`
+```solidity
+function commitDividend(address _who) internal {
+    uint last = wallets[_who].lastDividendPeriod;
+    if((balances[_who]==0) || (last==0)){
+        wallets[_who].lastDividendPeriod=uint16(dividendPeriod);
+        return;
+    }
+    if(last==dividendPeriod) {
+        return;
+    }
+    uint share = balances[_who] * 0xffffffff / totalSupply;
+    uint balance = 0;
+    for(;last<dividendPeriod;last++) {
+        balance += share * dividends[last];
+    }
+    balance = (balance / 0xffffffff);
+    walletBalance += balance;
+    wallets[_who].balance += uint208(balance);
+    wallets[_who].lastDividendPeriod = uint16(last);
+    LogDividend(_who,balance,last);
+}
+```
+- **Observation**: Handles dividend calculations.
+- **Vulnerability**: The dividend calculation can lead to an overflow if not handled and could result in erroneous balances being assigned.
+- **Recommendation**: Use SafeMath on calculations and ensure overflow checks.
+
+### 24. `function betPrize(Bet _player, uint24 _hash)`
+```solidity
+function betPrize(Bet _player, uint24 _hash) constant private returns (uint) { 
+    // house fee 13.85%
+    uint24 bethash = uint24(_player.betHash);
+    uint24 hit = bethash ^ _hash;
+    uint24 matches =
+        ((hit & 0xF) == 0 ? 1 : 0 ) +
+        ((hit & 0xF0) == 0 ? 1 : 0 ) +
+        ((hit & 0xF00) == 0 ? 1 : 0 ) +
+        ((hit & 0xF000) == 0 ? 1 : 0 ) +
+        ((hit & 0xF0000) == 0 ? 1 : 0 ) +
+        ((hit & 0xF00000) == 0 ? 1 : 0 );
+    // returns prize based on matching criteria
+}
+```
+- **Observation**: Calculates prize based on matches in betting.
+- **Vulnerability**: The logic for matches can be manipulated to either ensure lower winnings or incentivize incorrect bets.
+- **Recommendation**: Validate underlying logic to ensure fairness and randomness.
+
+### 25. `function betOf(address _who)`
+```solidity
+function betOf(address _who) constant external returns (uint) {
+    Bet memory player = bets[_who];
+    if( (player.value == 0) || 
+        (player.blockNum <= 1) ||
+        (block.number < player.blockNum) || 
+        (block.number >= player.blockNum + (10 * hashesSize))) {
+        return(0);
+    }
+    // handles winning calculation here
+}
+```
+- **Observation**: Checks if a player has won based on their betting status.
+- **Vulnerability**: Logic should include proper checks to prevent players from continuously checking for results without locking their status.
+- **Recommendation**: Ensure that proper checks are also performed post-bet evaluation.
+
+### 26. `function won()`
+```solidity
+function won() public {
+    Bet memory player = bets[msg.sender];
+    // Handling winning and results
+}
+```
+- **Observation**: Determines if a player has won based on their bet.
+- **Vulnerability**: Similar to `betOf`, could allow players to abuse the flow to determine winning without explicitly clearing their own bet from state.
+- **Recommendation**: Implement additional state checks to avoid abuse.
+
+### 27. `function play()` and `function playRandom(address _partner)`
+Both functions enable players to engage in the lottery with their respective betting modes.
+- **Vulnerabilities**: User assumptions on randomness may lead to possible manipulation.
+- **Recommendation**: Ensure proper cleaners are held throughout.
+
+### 28. `function playSystem(uint _hash, address _partner)`
+```solidity
+function playSystem(uint _hash, address _partner) payable public returns (uint) {
+    won(); // Check if player did not win
+    // Rules on how player plays and amount on bets
+}
+```
+- **Observation**: Allows a player to bet under various conditions.
+- **Vulnerabilities**: As noted, the randomness could be manipulated, and the amounts may not cover cases where expected amounts aren’t issued.
+- **Recommendation**: Consider using a more resilient randomizing source.
+
+### 29. `function addHashes(uint _sadd)`
+```solidity
+function addHashes(uint _sadd) public returns (uint) {
+    require(hashFirst == 0 && _sadd > 0 && _sadd <= hashesSize);
+    // Seemingly complicated logic goes here
+}
+```
+- **Observation**: Adds hashes to swap space.
+- **Vulnerabilities**: Fails with improper checks.
+- **Recommendation**: Carefully manage and cache state changes.
+
+### 30. `function calcHashes(uint32 _lastb, uint32 _delta)`
+- **Observation**: Hash calculations lead to potential computational overhead.
+- **Recommendation**: Ensure that lengths don’t go beyond maximums.
+
+### 31. `function getHash(uint _block)`
+- **Vuln**: Similar block manipulations can occur here as with previous functions.
+- **Recommendation**: Rework the way hashes are derived post-execution.
+
+### 32. `function putHash()`
+- **Observation**: Handles hash data on gameplays.
+- **Recommendation**: Limiting time frames or users’ interactions can mitigate abuse further.
+
+### 33. `function putHashes(uint _num)`
+- **Observation**: Similar to previous hashing operations; consider limits on direct access to resources.
+- **Recommendation**: Ensure capacity limits are adhered to.
+
+### Summary
+The contract includes several functions that are critical to maintaining its operations securely. It is essential to address the issues raised, particularly around reentrancy, improper state manipulations, randomization of bets, and logical vulnerabilities in calculations. Given the above findings, prioritize implementing recommendations to safeguard against potential exploitation. 
+
+A thorough audit, unit tests, and gap analyses, such as integration tests covering each function's various paths, will aid in ensuring the contract's robustness. Always consider engaging a professional security audit or reviewer for blockchain development projects."

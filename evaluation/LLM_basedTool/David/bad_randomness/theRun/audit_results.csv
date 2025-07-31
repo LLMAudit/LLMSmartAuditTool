@@ -1,0 +1,441 @@
+Contract Code,Stage 1 Audit Result,Stage 2 Audit Result
+"/*
+ * @source: https://github.com/crytic/not-so-smart-contracts/blob/master/bad_randomness/theRun_source_code/theRun.sol
+ * @author: Ben Perez
+ * @vulnerable_at_lines: 110
+ */
+pragma solidity ^0.4.13;
+
+contract theRun {
+    uint private Balance = 0;
+    uint private Payout_id = 0;
+    uint private Last_Payout = 0;
+    uint private WinningPot = 0;
+    uint private Min_multiplier = 1100; 
+    //110%
+    
+
+    //Fees are necessary and set very low, to maintain the website. The fees will decrease each time they are collected.
+    //Fees are just here to maintain the website at beginning, and will progressively go to 0% :)
+    uint private fees = 0;
+    uint private feeFrac = 20; 
+    //Fraction for fees in per""thousand"", not percent, so 20 is 2%
+    
+    uint private PotFrac = 30; 
+    //For the WinningPot ,30=> 3% are collected. This is fixed.
+    
+    
+    address private admin;
+    
+    function theRun() {
+        admin = msg.sender;
+    }
+
+    modifier onlyowner {if (msg.sender == admin) _;  }
+
+    struct Player {
+        address addr;
+        uint payout;
+        bool paid;
+    }
+
+    Player[] private players;
+
+    //--Fallback function
+    function() {
+        init();
+    }
+
+    //--initiated function
+    function init() private {
+        uint deposit=msg.value;
+        if (msg.value < 500 finney) { 
+            //only participation with >1 ether accepted
+                msg.sender.send(msg.value);
+                return;
+        }
+        if (msg.value > 20 ether) { 
+            //only participation with <20 ether accepted
+                msg.sender.send(msg.value- (20 ether));
+                deposit=20 ether;
+        }
+        Participate(deposit);
+    }
+
+    //------- Core of the game----------
+    function Participate(uint deposit) private {
+        //calculate the multiplier to apply to the future payout
+        
+
+        uint total_multiplier=Min_multiplier; 
+        //initiate total_multiplier
+        if(Balance < 1 ether && players.length>1){
+            total_multiplier+=100; 
+            // + 10 %
+        }
+        if( (players.length % 10)==0 && players.length>1 ){ 
+            //Every 10th participant gets a 10% bonus, play smart !
+            total_multiplier+=100; 
+            // + 10 %
+        }
+        
+        //add new player in the queue !
+        players.push(Player(msg.sender, (deposit * total_multiplier) / 1000, false));
+        
+        //--- UPDATING CONTRACT STATS ----
+        WinningPot += (deposit * PotFrac) / 1000; 
+        // take some 3% to add for the winning pot !
+        fees += (deposit * feeFrac) / 1000; 
+        // collect maintenance fees 2%
+        Balance += (deposit * (1000 - ( feeFrac + PotFrac ))) / 1000; 
+        // update balance
+
+        // Winning the Pot :) Condition : paying at least 1 people with deposit > 2 ether and having luck !
+        if(  ( deposit > 1 ether ) && (deposit > players[Payout_id].payout) ){ 
+            uint roll = random(100); 
+            //take a random number between 1 & 100
+            if( roll % 10 == 0 ){ 
+                //if lucky : Chances : 1 out of 10 ! 
+                msg.sender.send(WinningPot); 
+                // Bravo !
+                WinningPot=0;
+            }
+            
+        }
+        
+        //Classic payout for the participants
+        while ( Balance > players[Payout_id].payout ) {
+            Last_Payout = players[Payout_id].payout;
+            players[Payout_id].addr.send(Last_Payout); 
+            //pay the man, please !
+            Balance -= players[Payout_id].payout; 
+            //update the balance
+            players[Payout_id].paid=true;
+            
+            Payout_id += 1;
+        }
+    }
+
+
+
+    uint256 constant private salt =  block.timestamp;
+    
+    function random(uint Max) constant private returns (uint256 result){
+        //get the best seed for randomness
+        uint256 x = salt * 100 / Max;
+        uint256 y = salt * block.number / (salt % 5) ;
+        uint256 seed = block.number/3 + (salt % 300) + Last_Payout +y; 
+        // <yes> <report> BAD_RANDOMNESS
+        uint256 h = uint256(block.blockhash(seed)); 
+    
+        return uint256((h / x)) % Max + 1; 
+        //random number between 1 and Max
+    }
+    
+    
+
+    //---Contract management functions
+    function ChangeOwnership(address _owner) onlyowner {
+        admin = _owner;
+    }
+    function WatchBalance() constant returns(uint TotalBalance) {
+        TotalBalance = Balance /  1 wei;
+    }
+    
+    function WatchBalanceInEther() constant returns(uint TotalBalanceInEther) {
+        TotalBalanceInEther = Balance /  1 ether;
+    }
+    
+    
+    //Fee functions for creator
+    function CollectAllFees() onlyowner {
+        if (fees == 0) throw;
+        admin.send(fees);
+        feeFrac-=1;
+        fees = 0;
+    }
+    
+    function GetAndReduceFeesByFraction(uint p) onlyowner {
+        if (fees == 0) feeFrac-=1; 
+        //Reduce fees.
+        admin.send(fees / 1000 * p);
+        //send a percent of fees
+        fees -= fees / 1000 * p;
+    }
+        
+
+//---Contract informations
+function NextPayout() constant returns(uint NextPayout) {
+    NextPayout = players[Payout_id].payout /  1 wei;
+}
+
+function WatchFees() constant returns(uint CollectedFees) {
+    CollectedFees = fees / 1 wei;
+}
+
+
+function WatchWinningPot() constant returns(uint WinningPot) {
+    WinningPot = WinningPot / 1 wei;
+}
+
+function WatchLastPayout() constant returns(uint payout) {
+    payout = Last_Payout;
+}
+
+function Total_of_Players() constant returns(uint NumberOfPlayers) {
+    NumberOfPlayers = players.length;
+}
+
+function PlayerInfo(uint id) constant returns(address Address, uint Payout, bool UserPaid) {
+    if (id <= players.length) {
+        Address = players[id].addr;
+        Payout = players[id].payout / 1 wei;
+        UserPaid=players[id].paid;
+    }
+}
+
+function PayoutQueueSize() constant returns(uint QueueSize) {
+    QueueSize = players.length - Payout_id;
+}
+
+
+}","The provided smart contract contains a number of critical vulnerabilities and logic issues that could potentially lead to loss of funds. Below is an independent function analysis highlighting these vulnerabilities.
+
+### 1. **Constructor and Ownership**
+```solidity
+function theRun() {
+    admin = msg.sender;
+}
+```
+- **Issue:** Lack of `payable` modifier in here leads to any ether sent with contract creation being reverted. Proper notation should be used to ensure initial funds are handled if necessary.
+- **Potential Attack:** If funds are intended to be deposited during the contract creation, they could be lost forever. 
+
+### 2. **Fallback Function**
+```solidity
+function() {
+    init();
+}
+```
+- **Issue:** The fallback function calls `init()`, which is private and is only designed to allow deposits. This could lead to unexpected behavior. Additionally, if a user sends less than 500 finney, they will lose their ether.
+- **Potential Attack:** Spamming calls to the fallback function without sending sufficient funds could clog the contract and result in losses.
+
+### 3. **Init Function**
+```solidity
+function init() private {
+    uint deposit=msg.value;
+    if (msg.value < 500 finney) { 
+        msg.sender.send(msg.value);
+        return;
+    }
+```
+- **Issue:** Users sending less than 0.5 ether receive their funds back, but the contract might fail for other reasons if it's out of balance or fails to call a fallback.
+- **Potential Attack:** If a malicious user consistently sends low-value transactions to the fallback function, this could lead to denial of service for legitimate users.
+
+### 4. **Participate Function**
+```solidity
+function Participate(uint deposit) private {
+    ...
+    if( (players.length % 10)==0 && players.length>1 ){ 
+        total_multiplier+=100; 
+    }
+    ...
+    if(  ( deposit > 1 ether ) && (deposit > players[Payout_id].payout) ){ 
+        uint roll = random(100); 
+        if( roll % 10 == 0 ){ 
+            msg.sender.send(WinningPot); 
+            WinningPot=0;
+        }
+```
+- **Issue:** The `msg.sender.send(...)` method can fail due to re-entrancy attack. If a user called this function while their external contract was hooked in, they could cause this contract’s balance state to become corrupted.
+- **Potential Attack:** Allowing arbitrary ether transfer to a contract that could contain malicious logic can lead to the double-spending or denial of funds.
+
+### 5. **Randomness Generation**
+```solidity
+function random(uint Max) constant private returns (uint256 result){
+    uint256 h = uint256(block.blockhash(seed)); 
+    return uint256((h / x)) % Max + 1; 
+}
+```
+- **Issue:** This uses block data for randomness, which is highly predictable. Using predictable block values makes this vulnerable to manipulation by miners or other attackers.
+- **Potential Attack:** Players could collude with miners to ensure they receive the winning pot when playing, leading to unfair advantages.
+
+### 6. **Collecting Fees**
+```solidity
+function CollectAllFees() onlyowner {
+    if (fees == 0) throw;
+    admin.send(fees);
+    feeFrac-=1;
+    fees = 0;
+}
+```
+- **Issue:** The fees accumulation and distribution process can lock up funds in case the gas limit is exceeded or a contract fails to send ether to the `admin` address.
+- **Potential Attack:** If the admin misuses this and doesn't keep transaction limits in mind, a significant portion of accrued ether could be locked and inaccessible.
+
+### 7. **Player Struct and Management**
+```solidity
+function PlayerInfo(uint id) constant returns(address Address, uint Payout, bool UserPaid) {
+    if (id <= players.length) {
+        Address = players[id].addr;
+        Payout = players[id].payout / 1 wei;
+        UserPaid=players[id].paid;
+    }
+}
+```
+- **Issue:** The check `if (id <= players.length)` should be `if (id < players.length)` to prevent out-of-bounds errors.
+- **Potential Attack:** Accessing out-of-bounds indices could lead to an exception, potentially leading to loss of funds or corruption of the players array.
+
+### 8. **Miscellaneous Concerns**
+- **Gas Limit Problems:** Functions that process payouts (`while ( Balance > players[Payout_id].payout )`) could run out of gas if the player array is large, causing hard failures during execution.
+- **Lack of events:** No events are emitted during important state changes like winning or fee collection which leaves no trace on the blockchain and makes debugging difficult.
+
+### **General Recommendations**
+- Use OpenZeppelin libraries for safe arithmetic operations and overall better practices.
+- Transition to a newer version of Solidity (e.g., 0.8.x) for built-in overflow/underflow checks and improved security features.
+- Implement better control for fee structures with more concrete mechanisms to prevent unexpected losses or lockups.
+- Switch random number generation to Chainlink's VRF or similar secure random number solutions to prevent manipulation.
+
+In conclusion, while the contract has a basic structure, it contains multiple vulnerabilities that could lead to significant fund losses or lockups. An extensive rewrite and thorough auditing based on the above observations is recommended.","Certainly! Let’s analyze each function in the contract independently, identifying key issues and potential vulnerabilities within each one. 
+
+### **1. Constructor**
+```solidity
+function theRun() {
+    admin = msg.sender;
+}
+```
+- **Issues:**
+  - Not marked as `payable`, which means any ether sent during the contract creation will be reverted. This could lead to lost funds if users intend to deposit upon creation.
+  
+### **2. Fallback Function**
+```solidity
+function() {
+    init();
+}
+```
+- **Issues:**
+  - Directly invokes `init()`, which may not handle edge cases properly.
+  - If called with less than 500 finney, it returns the value sent but may not handle other scenarios well, such as contract out-of-gas during the fallback execution.
+  - Because this is a non-receive function in Solidity versions prior to 0.6, it can revert with empty calls leading to unexpected contract states.
+  
+### **3. `init` Function**
+```solidity
+function init() private {
+    uint deposit = msg.value;
+    if (msg.value < 500 finney) { 
+        msg.sender.send(msg.value);
+        return;
+    }
+    if (msg.value > 20 ether) { 
+        msg.sender.send(msg.value - (20 ether));
+        deposit = 20 ether;
+    }
+    Participate(deposit);
+}
+```
+- **Issues:**
+  - Does not handle failure of `send()`, which can result in locked ether if a user is a contract and fails to accept received ether.
+  - It contains a security vulnerability where a deposit below 500 finney gets refunded, but this refund does not include any logic preventing spamming calls to the contract (Denial of Service risk).
+  - If excess ether is sent (greater than 20 ether), part of the ether is sent back, and this could mismanage state in the contract.
+
+### **4. `Participate` Function**
+```solidity
+function Participate(uint deposit) private {
+    uint total_multiplier = Min_multiplier; 
+    ...
+    players.push(Player(msg.sender, (deposit * total_multiplier) / 1000, false));
+
+    // Winning the Pot
+    if ((deposit > 1 ether) && (deposit > players[Payout_id].payout)) { 
+        uint roll = random(100); 
+        if (roll % 10 == 0) { 
+            msg.sender.send(WinningPot);
+            WinningPot = 0;
+        }
+    }
+
+    // Classical payout for participants
+    while (Balance > players[Payout_id].payout) {
+        ...
+    }
+}
+```
+- **Issues:**
+  - The `msg.sender.send(WinningPot)` can cause a fallback on the msg.sender's address, which can lead to re-entrancy attacks if the receiving contract is malicious.
+  - The loop on payouts could run indefinitely if `Balance` never dips below `players[Payout_id].payout` and could run out of gas leading to failed transactions.
+  - The random number logic can introduce miner manipulation attack vectors, since it relies on block properties.
+
+### **5. `random` Function**
+```solidity
+function random(uint Max) constant private returns (uint256 result){
+    ...
+    uint256 h = uint256(block.blockhash(seed)); 
+    return uint256((h / x)) % Max + 1; 
+}
+```
+- **Issues:**
+  - This method of generating randomness with block properties is not secure; it can be predicted or influenced by miners.
+  - Using block hashes as randomness can lead to outcomes where users are able to manipulate the `random()` function to their advantage.
+
+### **6. `ChangeOwnership` Function**
+```solidity
+function ChangeOwnership(address _owner) onlyowner {
+    admin = _owner;
+}
+```
+- **Issues:**
+  - Allows the admin to transfer ownership without any checks or proper controls. If a malicious actor gains access to the admin address, they can take full control of the contract.
+
+### **7. `CollectAllFees` Function**
+```solidity
+function CollectAllFees() onlyowner {
+    if (fees == 0) throw;
+    admin.send(fees);
+    feeFrac -= 1;
+    fees = 0;
+}
+```
+- **Issues:**
+  - The `throw` statement is outdated in later versions of Solidity; this should be replaced with `require(fees > 0, ""No fees to collect"")`.
+  - If the transaction fails for any reason (e.g., out of gas), there's no clear state reset leading to locked or unrecoverable funds.
+  - Directly reducing `feeFrac` without checks may lead to negative values for `feeFrac`.
+
+### **8. `GetAndReduceFeesByFraction` Function**
+```solidity
+function GetAndReduceFeesByFraction(uint p) onlyowner {
+    ...
+}
+```
+- **Issues:**
+  - Similar to `CollectAllFees`, has potential issues with negative balance and using `send()` without checks can lead to failures when sending to contracts.
+  - Potential gas issues if `p` leads to large calculations could restrict collection.
+
+### **9. `PlayerInfo` Function**
+```solidity
+function PlayerInfo(uint id) constant returns(address Address, uint Payout, bool UserPaid) {
+    if (id <= players.length) {
+        Address = players[id].addr;
+        ...
+    }
+}
+```
+- **Issues:**
+  - The check `if (id <= players.length)` should be `if (id < players.length)` to prevent out-of-bounds errors. Accessing `players[id]` when `id` equals `players.length` leads to an exception.
+  - No return statement in cases where the check fails, which leads to undefined behavior.
+
+### **10. Utility Functions (`WatchBalance`, `WatchFees`, etc.)**
+```solidity
+function WatchBalance() constant returns(uint TotalBalance) {
+    TotalBalance = Balance / 1 wei;
+}
+```
+- **Issues:**
+  - Using division by `1 wei` isn’t necessary and may lead to confusion. Returning balances should be straightforward without unnecessary calculations.
+  
+### **Final Thoughts**
+This smart contract has significant vulnerabilities related to fund management, randomness generation, improper checks, and potential exploits due to bad construction. Each function presents avenues for potential loss of funds or logical errors.
+
+**Recommendations:**
+1. Ensure that all payable functions handle returns correctly and consider using `transfer()` or `call()` for safer fund transfers.
+2. Implement security best practices, including the use of a more secure randomness source.
+3. Conduct thorough testing, especially around gas implications and underlying error scenarios.
+4. Consider an upgrade to a newer version of Solidity with improved security features.
+5. Perform formal verification to check for logical flaws and ensure safety in fund handling and distribution."

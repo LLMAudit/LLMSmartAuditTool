@@ -1,0 +1,182 @@
+Contract Code,Stage 1 Audit Result,Stage 2 Audit Result
+"/*
+ * @source:https://github.com/cclabsInc/BlockChainExploitation/blob/master/2020_BlockchainFreeCourse/Tx.Origin/BankOfEther.sol
+ * @author: -
+ * @vulnerable_at_lines: 34
+ */
+
+pragma solidity ^0.6.6;
+
+contract BankOfEther {
+  address owner;
+  mapping (address =>uint) balances;
+  
+  constructor() public {
+    owner = msg.sender;
+  }
+    
+  function deposit() public payable{
+    balances[msg.sender] = balances[msg.sender]+msg.value;	
+  }
+    
+  function transferTo(address payable to, uint amount) public payable {
+    require(tx.origin == owner);
+    to.transfer(amount);
+  }
+
+  function changeOwner(address newOwner) public{
+    require(tx.origin == owner);
+    owner = newOwner;
+  }
+ 
+  function kill() public {
+    require(msg.sender == owner);
+    // <yes> <report> unsafe_suicide
+    selfdestruct(msg.sender);
+  }
+}","Let's go through the `BankOfEther` smart contract, function by function, to identify any potential vulnerabilities or issues that could lead to loss of funds.
+
+### Vulnerability Overview
+
+1. **Use of `tx.origin`:** 
+   - The usage of `tx.origin` allows reliance on the external caller's address rather than the immediate caller's address. This can lead to various forms of attacks, including phishing. A malicious contract could trick the owner into calling a function that transfers assets or changes ownership without the owner's explicit consent.
+  
+2. **Lack of balance checks:** 
+   - The contract does not check if the owner's balance is enough before transferring funds in the `transferTo` function. If the owner does not have enough Ether, the function will still execute, but it may not result in a desired outcome due to lack of transactive success check.
+   
+3. **Ownership Change:**
+   - The `changeOwner` function allows any contract interacting with it as the owner (if they re-enter calling through `tx.origin`). This allows for unauthorized ownership change if an external contract is invoked, leading to potential asset theft.
+
+4. **Self-Destruct:** 
+   - The `kill` function can be called by anyone since it only checks `msg.sender == owner` without any application of the `tx.origin`. Furthermore, there’s no fallback to prevent re-entry or checks to ensure that the contract can safely handle the self-destruct logic (though the self-destruct itself is considered safe when used correctly).
+
+### In-Depth Function Review
+
+#### 1. `deposit`
+```solidity
+function deposit() public payable{
+    balances[msg.sender] = balances[msg.sender]+msg.value;	
+}
+```
+- **Issue:** This function allows users to deposit Ether, but it simply increases their balance. There is no cap on deposits or validation that could prevent excessive or malicious deposits from affecting system integrity.
+
+#### 2. `transferTo`
+```solidity
+function transferTo(address payable to, uint amount) public payable {
+    require(tx.origin == owner);
+    to.transfer(amount);
+}
+```
+- **Issues:**
+  - **Logic Issue:** It does not check if the owner address has sufficient balance for the transfer (`require(address(this).balance >= amount)`).
+  - **Security Issue:** Exploitable due to reliance on `tx.origin`. Any external contract can trick the owner into executing this function, enabling unauthorized fund transfer.
+
+#### 3. `changeOwner`
+```solidity
+function changeOwner(address newOwner) public{
+    require(tx.origin == owner);
+    owner = newOwner;
+}
+```
+- **Issues:**
+  - **Security Flaw:** Same `tx.origin` vulnerability allows malicious contracts to change the owner unknowingly from the owner's perspective. The use of `msg.sender` for owner checks would be safer.
+
+#### 4. `kill`
+```solidity
+function kill() public {
+    require(msg.sender == owner);
+    selfdestruct(msg.sender);
+}
+```
+- **Issues:**
+  - **Potential Loss of Funds:** If the contract is destructed and holds user funds, these funds will be sent to the owner’s address without any checks on whether those funds are actually available or if it was the intended action.
+  - **Best Practice Violation:** The messy self-destruct approach is discouraged because it can lead to loss of access to funds if misused.
+
+### Recommendations for Improvement
+1. **Avoid using `tx.origin`:** Refactor the ownership and authorization mechanisms to use `msg.sender`. Use a modifier-based approach to enforce owner checks.
+   
+2. **Balance Validation:** Before any transfer or significant state change, validate that the contract or the current state allows it (e.g., check balances, validate available liquidity).
+
+3. **Use Reentrancy Guards:** Consider applying a mutex mechanism or utilize OpenZeppelin's own Flattener libraries for reentrancy protection.
+
+4. **Event Logging:** Implement event logging for important state changes like deposits, transfers, ownership changes, and contract destruction.
+
+5. **Considerations for Self-Destruct:**
+   - Make sure there’s a clear policy on what happens when self-destruct occurs and that users are aware of it to avoid confusion in fund management.
+
+By addressing these identified issues, the overall security of the `BankOfEther` contract can be significantly improved, reducing the chances of fund loss and enhancing user trust in the application.","Certainly! I will analyze each function of the `BankOfEther` contract independently to identify vulnerabilities and potential issues.
+
+### 1. `constructor`
+```solidity
+constructor() public {
+    owner = msg.sender;
+}
+```
+#### Review:
+- **Functionality:** This function sets the contract deployer as the owner of the contract.
+- **Issues:** No critical issues within this function itself. However, verify that the ownership mechanics throughout the contract leverage this correctly.
+
+### 2. `deposit`
+```solidity
+function deposit() public payable {
+    balances[msg.sender] = balances[msg.sender] + msg.value;	
+}
+```
+#### Review:
+- **Functionality:** This function allows users to deposit Ether into the contract, updating the balance of the sender.
+- **Issues:**
+  - **No Sanity Checks:** The function doesn't validate the amount being deposited. If a malicious or inadequate setup occurs, users could inadvertently deposit far more than intended.
+  - **Overflow Risk:** Although Solidity 0.6.x uses checked arithmetic, careful attention is necessary when migrating from older versions. Make sure to prevent overflows with larger deposits if switching compiler versions.
+
+### 3. `transferTo`
+```solidity
+function transferTo(address payable to, uint amount) public payable {
+    require(tx.origin == owner);
+    to.transfer(amount);
+}
+```
+#### Review:
+- **Functionality:** This function allows the owner to transfer a specified amount of Ether to another address.
+- **Issues:**
+  - **`tx.origin` Dependency:** Using `tx.origin` means that a third-party contract could exploit this function by calling it on behalf of the owner (phishing attack). It misleads the owner into thinking they are the caller.
+  - **Insufficient Balance Check:** The function does not check if the contract has enough Ether to execute the transfer. This could fail without reverting funds in the expected manner. The addition of a check like `require(address(this).balance >= amount;` would be prudent.
+  - **Funds Disappearing:** If the transfer fails (e.g., if `to` is a non-payable address or doesn't handle receiving Ether correctly), it could lead to a perceived success but no actual transfer, leaving users unaware.
+
+### 4. `changeOwner`
+```solidity
+function changeOwner(address newOwner) public {
+    require(tx.origin == owner);
+    owner = newOwner;
+}
+```
+#### Review:
+- **Functionality:** This allows the owner to change ownership of the contract.
+- **Issues:**
+  - **`tx.origin` Vulnerability:** Same concern as `transferTo`. An external contract can trick the owner into changing ownership unexpectedly.
+  - **No checks on `newOwner`:** There is no validation on whether `newOwner` is a valid address (i.e., not a zero address), which can lead to losing control over the contract if set to zero.
+  - **Permissions Risk:** A malicious contract can hijack ownership by calling this function via the owner’s address.
+
+### 5. `kill`
+```solidity
+function kill() public {
+    require(msg.sender == owner);
+    selfdestruct(msg.sender);
+}
+```
+#### Review:
+- **Functionality:** This function allows the contract owner to destruct the contract, sending remaining Ether to the owner's address.
+- **Issues:**
+  - **Permissions Check:** While it correctly checks if `msg.sender` is the owner, the lack of user awareness when executing this function could lead to misuse.
+  - **Unsound Logics:** Once self-destructed, users might lose confidence if they aren’t clear about the intentions behind executing this, leading to loss of funds during contract unwinding.
+  - **No Fallback on Transfer Success:** If funds are designed to be transferred back during destruct, it can lead to controversial unintended behaviors if any pending transactions are not handled appropriately.
+
+### Summary:
+After analyzing each function independently:
+- Usage of `tx.origin` is a significant security risk throughout the `transferTo` and `changeOwner` functions.
+- Lack of checks on balances leads to potential fund loss in both `transferTo` and during self-destruct.
+- Overall, the contract needs to improve validations and access controls.
+
+**Overall Recommendations:** 
+- Avoid `tx.origin`, favor `msg.sender`.
+- Implement balance checks where value transfers occur.
+- Carefully monitor function permissions to ensure ownership transitions are secure and valid."

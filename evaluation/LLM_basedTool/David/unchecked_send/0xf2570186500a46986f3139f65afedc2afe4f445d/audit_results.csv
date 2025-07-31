@@ -1,0 +1,137 @@
+Contract Code,Stage 1 Audit Result,Stage 2 Audit Result
+"/*
+ * @source: etherscan.io 
+ * @author: -
+ * @vulnerable_at_lines: 18
+ */
+
+pragma solidity ^0.4.16;
+
+contract RealOldFuckMaker {
+    address fuck = 0xc63e7b1DEcE63A77eD7E4Aeef5efb3b05C81438D;
+    
+    // this can make OVER 9,000 OLD FUCKS
+    // (just pass in 129)
+    function makeOldFucks(uint32 number) {
+        uint32 i;
+        for (i = 0; i < number; i++) {
+            // <yes> <report> UNCHECKED_LL_CALLS
+            fuck.call(bytes4(sha3(""giveBlockReward()"")));
+        }
+    }
+}","The provided Solidity contract `RealOldFuckMaker` appears to have several security issues, particularly with regards to unchecked external calls and potential logic problems that could lead to loss of funds or unintended behavior. Let's analyze the contract function by function.
+
+### Contract Overview:
+```solidity
+pragma solidity ^0.4.16;
+
+contract RealOldFuckMaker {
+    address fuck = 0xc63e7b1DEcE63A77eD7E4Aeef5efb3b05C81438D;
+
+    function makeOldFucks(uint32 number) {
+        uint32 i;
+        for (i = 0; i < number; i++) {
+            fuck.call(bytes4(sha3(""giveBlockReward()"")));
+        }
+    }
+}
+```
+
+### Issues Identified:
+
+1. **Unchecked External Call**:
+   - The line `fuck.call(bytes4(sha3(""giveBlockReward()"")));` makes an external call to the `giveBlockReward()` function of another contract. If the `fuck` contract is not implemented correctly or does not return a success status, the transaction may fail silently. This can lead to the loss of gas and unintended behavior.
+   - Solution: Use `require()` or `assert()` to check the return value of the external call. Example: 
+     ```solidity
+     require(fuck.call(bytes4(sha3(""giveBlockReward()"")));
+     ```
+
+2. **Reentrancy Vulnerability**:
+   - If the called function `giveBlockReward()` in the `fuck` contract has any form of complexity that can lead to reentrancy, it might cause issues when the function `makeOldFucks` is called multiple times in quick succession.
+   - Solution: Consider using the checks-effects-interactions pattern or a reentrancy guard.
+
+3. **Gas Limit and Loops**:
+   - The `makeOldFucks` function iterates over a potentially large number (up to 9,000) of transactions without any gas limits. If `number` is too high, it can lead to a complete depletion of gas and failure of the whole transaction.
+   - Solution: Implement a gas limit check or warn users about the maximum input value.
+
+4. **Lack of Visibility Specifiers**:
+   - The `makeOldFucks` function does not specify a visibility modifier. By default, functions are public, which is generally okay, but it's better practice to explicitly specify visibility as `public` or `external`.
+   - Solution: Specify visibility like this:
+     ```solidity
+     function makeOldFucks(uint32 number) public {
+     ```
+
+5. **Hardcoded Address**:
+   - The `fuck` address is hardcoded, which means if the contract at that address is changed or destroyed, this contract will break. This makes the contract less flexible.
+   - Solution: Allow the address to be set through a constructor or a setter function.
+
+6. **Use of Deprecated Features**:
+   - The use of `sha3` has been deprecated. The recommended function is `keccak256`.
+   - Solution: Update the reference to use `keccak256`.
+
+7. **No Fail Safes and Emergency Mechanisms**:
+   - There's no mechanism to pause or withdraw funds from this contract in case of emergency or a detected flaw in external contracts. 
+   - Solution: Implement a pause functionality and an owner-only function to withdraw funds.
+
+### Conclusion:
+This contract has significant vulnerabilities that can lead to loss of funds due to unchecked calls, possible reentrancy attacks, and logic problems relating to gas limitations, among others. It is advisable to refactor the contract considering the proposed solutions and best practices. After these changes, it is recommended to conduct further audits and tests to ensure all edge cases are handled appropriately.","Certainly! Let's analyze the provided contract `RealOldFuckMaker` function by function. Currently, there is only one function, `makeOldFucks`. 
+
+### Contract Overview:
+```solidity
+pragma solidity ^0.4.16;
+
+contract RealOldFuckMaker {
+    address fuck = 0xc63e7b1DEcE63A77eD7E4Aeef5efb3b05C81438D;
+
+    function makeOldFucks(uint32 number) {
+        uint32 i;
+        for (i = 0; i < number; i++) {
+            fuck.call(bytes4(sha3(""giveBlockReward()"")));
+        }
+    }
+}
+```
+
+### Function Analysis
+
+#### 1. **Function: `makeOldFucks(uint32 number)`**
+   - **Input**: 
+     - `number`: A `uint32` that indicates how many times to call the `giveBlockReward()` function in the external contract `fuck`.
+   
+   - **Security Issues:**
+     - **Unchecked External Call**: The function calls `fuck.call(bytes4(sha3(""giveBlockReward()"")));`. Solidity's `call` method returns a boolean indicating success or failure, but the function does not check this return value. If the external call fails (e.g., the function does not exist, or it reverts), the transaction will not throw an error, and the user might lose gas.
+       - **Recommended Fix**: Check the return value of the call:
+         ```solidity
+         bool success = fuck.call(bytes4(sha3(""giveBlockReward()"")));
+         require(success, ""External call failed"");
+         ```
+
+     - **Reentrancy Risk**: If the called function `giveBlockReward()` retrieves any Ether or modifies state variables, it could risk reentrancy issues, especially if it can affect the state of the `RealOldFuckMaker` contract in some way (even though it does not modify the storage). Future versions of the `fuck` contract may introduce such features, leading to vulnerabilities.
+       - **Recommended Fix**: Implement checks-effects-interactions pattern where possible.
+
+     - **Gas Limit and Loop**: The function makes a loop that is determined by the `number` parameter. Calling this function with a large number (e.g., > 1,000) could run out of gas and revert the transaction, resulting in a waste of gas fees.
+       - **Recommended Fix**: Implement checks for maximum accepted values, like:
+         ```solidity
+         require(number > 0 && number <= maxAcceptableValue, ""Invalid count"");
+         ```
+
+     - **No Visibility Specifier**: The function does not have a visibility modifier. By default, it is public, but it is a good practice to be explicit about visibility.
+       - **Recommended Fix**: Add visibility:
+         ```solidity
+         function makeOldFucks(uint32 number) public {
+         ```
+
+     - **Hardcoded Address**: The address of the `fuck` contract is hardcoded, making the contract inflexible if the `fuck` contract address needs to change.
+       - **Recommended Fix**: Use a constructor to allow setting the address on deployment, or add a function to update the address with appropriate access controls.
+
+     - **Deprecated Features**: The usage of `sha3` is deprecated in favor of `keccak256` in later Solidity versions. While this contract uses an older version, it's a good practice to modernize.
+       - **Recommended Fix**: Update the statement to:
+         ```solidity
+         fuck.call(bytes4(keccak256(""giveBlockReward()"")));
+         ```
+
+### Summary of `makeOldFucks` Function
+The `makeOldFucks` function has several significant vulnerabilities, including an unchecked external call, potential for reentrancy, lack of input validation, and deprecated usages. The issues may lead to loss of funds or unintended behavior. Each of these problems has been addressed with suggested fixes.
+
+### Conclusion
+As the contract currently stands, it is highly recommended to refactor the existing function to ensure safety and compliance with best practices. There are no additional functions in this contract—improving this single function will vastly increase its security. After the refactor, it's essential to conduct thorough testing to validate that each fix behaves as intended without introducing new issues."

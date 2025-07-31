@@ -1,0 +1,461 @@
+Contract Code,Stage 1 Audit Result,Stage 2 Audit Result
+"/*
+ * @article: https://blog.positive.com/predicting-random-numbers-in-ethereum-smart-contracts-e5358c6b8620
+ * @source: https://etherscan.io/address/0xF767fCA8e65d03fE16D4e38810f5E5376c3372A8#code
+ * @vulnerable_at_lines: 127,128,129,130,132
+ * @author: -
+ */
+
+ //added pragma version
+pragma solidity ^0.4.0;
+
+ contract LuckyDoubler {
+//##########################################################
+//#### LuckyDoubler: A doubler with random payout order ####
+//#### Deposit 1 ETHER to participate                   ####
+//##########################################################
+//COPYRIGHT 2016 KATATSUKI ALL RIGHTS RESERVED
+//No part of this source code may be reproduced, distributed,
+//modified or transmitted in any form or by any means without
+//the prior written permission of the creator.
+
+    address private owner;
+
+    //Stored variables
+    uint private balance = 0;
+    uint private fee = 5;
+    uint private multiplier = 125;
+
+    mapping (address => User) private users;
+    Entry[] private entries;
+    uint[] private unpaidEntries;
+
+    //Set owner on contract creation
+    function LuckyDoubler() {
+        owner = msg.sender;
+    }
+
+    modifier onlyowner { if (msg.sender == owner) _; }
+
+    struct User {
+        address id;
+        uint deposits;
+        uint payoutsReceived;
+    }
+
+    struct Entry {
+        address entryAddress;
+        uint deposit;
+        uint payout;
+        bool paid;
+    }
+
+    //Fallback function
+    function() {
+        init();
+    }
+
+    function init() private{
+
+        if (msg.value < 1 ether) {
+             msg.sender.send(msg.value);
+            return;
+        }
+
+        join();
+    }
+
+    function join() private {
+
+        //Limit deposits to 1ETH
+        uint dValue = 1 ether;
+
+        if (msg.value > 1 ether) {
+
+        	msg.sender.send(msg.value - 1 ether);
+        	dValue = 1 ether;
+        }
+
+        //Add new users to the users array
+        if (users[msg.sender].id == address(0))
+        {
+            users[msg.sender].id = msg.sender;
+            users[msg.sender].deposits = 0;
+            users[msg.sender].payoutsReceived = 0;
+        }
+
+        //Add new entry to the entries array
+        entries.push(Entry(msg.sender, dValue, (dValue * (multiplier) / 100), false));
+        users[msg.sender].deposits++;
+        unpaidEntries.push(entries.length -1);
+
+        //Collect fees and update contract balance
+        balance += (dValue * (100 - fee)) / 100;
+
+        uint index = unpaidEntries.length > 1 ? rand(unpaidEntries.length) : 0;
+        Entry theEntry = entries[unpaidEntries[index]];
+
+        //Pay pending entries if the new balance allows for it
+        if (balance > theEntry.payout) {
+
+            uint payout = theEntry.payout;
+
+            theEntry.entryAddress.send(payout);
+            theEntry.paid = true;
+            users[theEntry.entryAddress].payoutsReceived++;
+
+            balance -= payout;
+
+            if (index < unpaidEntries.length - 1)
+                unpaidEntries[index] = unpaidEntries[unpaidEntries.length - 1];
+
+            unpaidEntries.length--;
+
+        }
+
+        //Collect money from fees and possible leftovers from errors (actual balance untouched)
+        uint fees = this.balance - balance;
+        if (fees > 0)
+        {
+                owner.send(fees);
+        }
+
+    }
+
+    //Generate random number between 0 & max
+    uint256 constant private FACTOR =  1157920892373161954235709850086879078532699846656405640394575840079131296399;
+    // <yes> <report> BAD_RANDOMNESS
+    function rand(uint max) constant private returns (uint256 result){
+        uint256 factor = FACTOR * 100 / max;
+        uint256 lastBlockNumber = block.number - 1;
+        uint256 hashVal = uint256(block.blockhash(lastBlockNumber));
+
+        return uint256((uint256(hashVal) / factor)) % max;
+    }
+
+
+    //Contract management
+    function changeOwner(address newOwner) onlyowner {
+        owner = newOwner;
+    }
+
+    function changeMultiplier(uint multi) onlyowner {
+        if (multi < 110 || multi > 150) throw;
+
+        multiplier = multi;
+    }
+
+    function changeFee(uint newFee) onlyowner {
+        if (fee > 5)
+            throw;
+        fee = newFee;
+    }
+
+
+    //JSON functions
+    function multiplierFactor() constant returns (uint factor, string info) {
+        factor = multiplier;
+        info = 'The current multiplier applied to all deposits. Min 110%, max 150%.';
+    }
+
+    function currentFee() constant returns (uint feePercentage, string info) {
+        feePercentage = fee;
+        info = 'The fee percentage applied to all deposits. It can change to speed payouts (max 5%).';
+    }
+
+    function totalEntries() constant returns (uint count, string info) {
+        count = entries.length;
+        info = 'The number of deposits.';
+    }
+
+    function userStats(address user) constant returns (uint deposits, uint payouts, string info)
+    {
+        if (users[user].id != address(0x0))
+        {
+            deposits = users[user].deposits;
+            payouts = users[user].payoutsReceived;
+            info = 'Users stats: total deposits, payouts received.';
+        }
+    }
+
+    function entryDetails(uint index) constant returns (address user, uint payout, bool paid, string info)
+    {
+        if (index < entries.length) {
+            user = entries[index].entryAddress;
+            payout = entries[index].payout / 1 finney;
+            paid = entries[index].paid;
+            info = 'Entry info: user address, expected payout in Finneys, payout status.';
+        }
+    }
+
+
+}
+","I will conduct a thorough security audit of the provided Solidity smart contract, `LuckyDoubler`, focusing on identifying critical issues that could lead to a loss of funds or other security vulnerabilities.
+
+### 1. **Overall Structure and Introduction**
+- The contract implements a lottery-like system where users deposit 1 ether and can receive random payouts based on their entries.
+- The contract contains ownership management, allowing the contract owner to change variables such as the multiplier and fee.
+
+### 2. **Auditing Each Function**
+
+#### 2.1. Constructor: `function LuckyDoubler()`
+- Initializes the owner.
+- No issues found; typical constructor pattern.
+
+#### 2.2. Fallback Function: `function()`
+- The fallback function initializes the contract and processes incoming ether.
+- **Issue**: It is a bad practice to have a fallback function that has state-changing behavior (it initializes the contract). This can cause confusion and unintended consequences, especially if the contract receives ether directly. Instead, this should enforce only accepting ether without processing.
+  
+#### 2.3. `function init() private`
+- **Issues**:
+  - The function attempts to return any ether sent that is less than 1 ether.
+  - **Reentrancy Vulnerability**: If `msg.sender.send(msg.value)` is called, a malicious contract can re-enter the `init()` or `join()` after the ether is sent, causing unexpected behaviors including potentially receiving more ether than intended because the state has not yet been solidified.
+  
+#### 2.4. `function join() private`
+- **Issues**:
+  - If `msg.value > 1 ether`, the excess ether is sent back to the user. The same reentrancy issue exists as above, creating multiple entry points for attack.
+  - Checks the state of `users[msg.sender]` to initialize user stats. However, if a user sends small amounts repeatedly, they can manipulate the payouts due to the random selection process.
+- The handling of the `unpaidEntries` can result in mistakes, as the entry can be removed from `unpaidEntries` incorrectly if the random selection and payout mechanism fails in the first part of the process.
+
+#### 2.5. `function rand(uint max) constant private returns (uint256 result)`
+- **Issues**:
+  - The randomness mechanism uses `block.blockhash` and `block.number`, which can be exploited by miners to influence the payout. The randomness is predictable and not secure.
+  - Providing a way for miners to manipulate the outcome is an inherent flaw and can result in a user losing funds or not getting the expected payouts.
+
+#### 2.6. Management Functions (`changeOwner`, `changeMultiplier`, `changeFee`)
+- **Issues**:
+  - **Access Control**: The `onlyowner` modifier could potentially leave the contract exposed if the owner’s address is compromised.
+  - The checks for changing values, especially in `changeFee`, allow for maximum fee to be set but could be updated incorrectly due to poor checks.
+
+#### 2.7. View Functions:
+- `multiplierFactor`, `currentFee`, `totalEntries`, `userStats`, `entryDetails` are standard view functions. However, they do not validate user input thoroughly, which could lead to potential issues. For example, the lack of error handling if an invalid index is used.
+
+### 3. **Critical Issues Summary**
+1. **Reentrancy Vulnerability**: The pattern of sending ether (using `.send`) before updating the contract state is severely flawed.
+2. **Predictable Randomness**: The random number generation process is not secure and allows miners to control outcomes.
+3. **Access Control**: The methods for changing values lack thorough checks, risking misuse or manipulation.
+4. **Fallback Function**: Not standard practice and can cause issues if ether is sent directly.
+5. **Potential Logic Flaws in Payout Management**: Logic for managing entries and payouts is prone to mistakes, especially under error conditions like insufficient balance.
+6. **Incorrect Struct Usage**: The treatment of unpaid entries and management details can lead to corrupt states if errors occur.
+
+### 4. **Recommendations**
+- Use the `checks-effects-interactions` pattern: Change the state and then interact with other contracts or send ether.
+- Implement more robust randomness generation using oracles or techniques like block timestamps in combination with off-chain inputs.
+- Improve access control to differentiate between owner and administrative actions more clearly.
+- Lenient checks on user input can lead to logical conditions if valid inputs are not handled correctly, always validate user entries.
+- Clearer separation of concerns and thorough testing for edge cases should be implemented.
+
+### Conclusion
+The limitations described above imply that the `LuckyDoubler` contract is at risk of being exploited, which could potentially lead to funds being lost, stolen, or trapped in the contract. Careful remediation of these issues is necessary to ensure the proper functioning of the contract.","Absolutely, I will analyze each function of the `LuckyDoubler` contract independently for potential vulnerabilities and issues that could impact the security and functionality of the contract.
+
+### 1. Constructor: `function LuckyDoubler()`
+
+**Analysis**:
+- The constructor initializes the `owner` of the contract.
+- **Security**: No vulnerabilities found in this constructor; it follows the standard pattern.
+
+---
+
+### 2. Fallback Function: `function()`
+
+**Code**:
+```solidity
+function() {
+    init();
+}
+```
+
+**Analysis**:
+- The function calls `init()` whenever ether is sent to the contract.
+- **Issues**:
+  - Performing state changes in the fallback function is not a standard practice and can lead to confusion. This may create potential issues if a user sends ether directly to the contract without using the intended interface.
+  - If `init()` fails to complete correctly, the contract state may be altered inaccurately.
+  
+**Recommendation**:
+- Remove the fallback function altogether or limit it to accept ether without state changes.
+- Alternatively, implement proper checks and make sure no state changes happen in this function.
+
+---
+
+### 3. `function init() private`
+
+**Code**:
+```solidity
+function init() private {
+    if (msg.value < 1 ether) {
+        msg.sender.send(msg.value);
+        return;
+    }
+    join();
+}
+```
+
+**Analysis**:
+- If less than 1 ether is sent, it refunds the `msg.value`.
+- Calls `join()` if 1 ether or more is sent.
+- **Issues**:
+  - **Reentrancy Vulnerability**: The call to `msg.sender.send(msg.value)` allows a malicious contract to re-enter and call `init()` or `join()` again before the contract's state is updated.
+  
+**Recommendation**:
+- Implement a checks-effects-interactions pattern: Update state before sending ether.
+- Use a secure method for handling payments, such as `transfer()` instead of `send()`, which reverts on failure.
+
+---
+
+### 4. `function join() private`
+
+**Code**:
+```solidity
+function join() private {
+    uint dValue = 1 ether;
+
+    if (msg.value > 1 ether) {
+        msg.sender.send(msg.value - 1 ether);
+        dValue = 1 ether;
+    }
+
+    // Add new users to the users array
+    if (users[msg.sender].id == address(0))
+    {
+        users[msg.sender].id = msg.sender;
+        users[msg.sender].deposits = 0;
+        users[msg.sender].payoutsReceived = 0;
+    }
+
+    entries.push(Entry(msg.sender, dValue, (dValue * (multiplier) / 100), false));
+    users[msg.sender].deposits++;
+    unpaidEntries.push(entries.length -1);
+
+    // Collect fees and update contract balance
+    balance += (dValue * (100 - fee)) / 100;
+
+    uint index = unpaidEntries.length > 1 ? rand(unpaidEntries.length) : 0;
+    Entry theEntry = entries[unpaidEntries[index]];
+
+    // Pay pending entries if the new balance allows for it
+    if (balance > theEntry.payout) {
+        ...
+    }
+
+    // Collect money from fees and possible leftovers from errors
+    uint fees = this.balance - balance;
+    if (fees > 0) {
+        owner.send(fees);
+    }
+}
+```
+
+**Analysis**:
+- The function processes the user's deposit, adds them to the list, selects a random entry, and attempts to pay out.
+- **Issues**:
+  - **Reentrancy Vulnerability**: Similar to `init()`, using `send()` while tracking balances can allow manipulation, including re-entry attacks.
+  - **Logic Complexity**: The handling of `unpaidEntries` may lead to logic errors when updating the list if any part of the logic fails.
+  - **Magic Numbers**: The function relies on the constant of 1 ether, and doesn't return excess properly in certain conditions.
+  
+**Recommendation**:
+- Update the function to secure state changes before any ether interactions.
+- Thoroughly test the logic that manipulates `unpaidEntries` to ensure there are no off-by-one errors or improper removals from the array.
+
+---
+
+### 5. `function rand(uint max) constant private returns (uint256 result)`
+
+**Code**:
+```solidity
+function rand(uint max) constant private returns (uint256 result) {
+    uint256 factor = FACTOR * 100 / max;
+    uint256 lastBlockNumber = block.number - 1;
+    uint256 hashVal = uint256(block.blockhash(lastBlockNumber));
+    return uint256((uint256(hashVal) / factor)) % max;
+}
+```
+
+**Analysis**:
+- Generates a pseudo-random number for selecting an entry.
+- **Issues**:
+  - **Bad Randomness**: The randomness is based on block hashes and number, which can be manipulated by miners, leading to predictable and manipulated outcomes.
+  
+**Recommendation**:
+- Use a more secure method for generating randomness, possibly by integrating with Chainlink VRF or other external oracles to ensure unpredictability.
+
+---
+
+### 6. `function changeOwner(address newOwner)`
+
+**Code**:
+```solidity
+function changeOwner(address newOwner) onlyowner {
+    owner = newOwner;
+}
+```
+
+**Analysis**:
+- Allows the current owner to change ownership.
+- **Issues**: 
+  - **Centralization Risk**: If the owner’s private key is compromised, complete control over the contract can be lost, and the ability to change the owner without further checks can present problems.
+  
+**Recommendation**:
+- Consider implementing a multi-signature requirement or a time-locked transfer to mitigate risks related to ownership.
+
+---
+
+### 7. `function changeMultiplier(uint multi)`
+
+**Code**:
+```solidity
+function changeMultiplier(uint multi) onlyowner {
+    if (multi < 110 || multi > 150) throw;
+    multiplier = multi;
+}
+```
+
+**Analysis**:
+- Allows the owner to change the multiplier within certain bounds.
+- **Issues**: 
+  - Use of `throw` is deprecated in newer Solidity versions. It should be replaced with proper error handling.
+  
+**Recommendation**:
+- Update this function to use `require()` to enforce the bounds.
+  
+---
+
+### 8. `function changeFee(uint newFee)`
+
+**Code**:
+```solidity
+function changeFee(uint newFee) onlyowner {
+    if (fee > 5) throw;
+    fee = newFee;
+}
+```
+
+**Analysis**:
+- Allows for changing the fee.
+- **Issues**:
+  - Logic error: The condition checks if `fee` is greater than 5 while it should enforce bounds on `newFee`.
+
+**Recommendation**:
+- Use `require(newFee <= 5)` for validation.
+- Ensure that the logic of changing the fee accurately reflects the program's intent.
+
+---
+
+### 9. Viewer Functions: 
+- `multiplierFactor`, `currentFee`, `totalEntries`, `userStats`, and `entryDetails`
+
+**Analysis** for each:
+- No critical issues found, but validation of user input is often missing.
+- They should implement checks so that a valid `user` or `index` is provided to prevent reading from uninitialized mappings or arrays.
+
+**Recommendations**:
+- Always ensure the provided indices are within bounds and return proper error messages.
+
+### Conclusion after Independent Function Analysis:
+The contract contains multiple vulnerabilities that could lead to loss of funds, potential manipulation by miners, and risks associated with centralization. The most critical actions that should be taken are:
+
+1. Fix the reentrancy vulnerabilities by adhering to the checks-effects-interactions pattern.
+2. Replace the randomness function with a more secure alternative.
+3. Implement better access control and checks for management functions.
+4. Ensure input validation is robust across all public and external functions.
+
+Addressing these issues will significantly improve the security and reliability of the `LuckyDoubler` contract."

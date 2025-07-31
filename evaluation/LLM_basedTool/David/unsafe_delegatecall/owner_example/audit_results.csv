@@ -1,0 +1,179 @@
+Contract Code,Stage 1 Audit Result,Stage 2 Audit Result
+"/*
+ * @source: https://docs.celo.org/blog/tutorials/solidity-vulnerabilities-delegated-call
+ * @author: -
+ * @vulnerable_at_lines: 35
+ */
+
+pragma solidity ^0.8.13;
+
+contract Lib {
+    address public owner;
+
+    function setowner() public {
+        owner = msg.sender;
+    }
+}
+
+contract Vulnerable {
+    address public owner;
+    Lib public lib;
+
+    constructor(Lib _lib) {
+        owner = msg.sender;
+        lib = Lib(_lib);
+    }
+
+    fallback() external payable {
+        // <yes> <report> unsafe delegatecall
+        address(lib).delegatecall(msg.data);
+    }
+}
+
+// this contract is used to attack Vulnerable contract
+contract AttackVulnerable {
+    address public vulnerable;
+
+    constructor(address _vulnerable) {
+        vulnerable = _vulnerable;
+    }
+
+    function attack() public {
+        vulnerable.call(abi.encodeWithSignature(""setowner()""));
+    }
+}","### Security Audit of the Provided Smart Contract
+
+#### Summary
+The provided contracts illustrate a case of vulnerabilities arising from improper use of delegate calls and calls in Solidity. Specifically, the `Vulnerable` contract allows arbitrary execution of any function in the `Lib` contract, which poses significant security risks. 
+
+Let's analyze each contract and function independently and identify critical issues.
+
+---
+
+### Contract: `Lib`
+
+1. **Functionality**:
+   - This contract has a method `setowner()` to set the `owner` of the contract to the address that calls this function (`msg.sender`).
+
+2. **Issues**: 
+   - **Lack of Access Control**: The `setowner()` function does not include access control, meaning any address can invoke this function. This could lead to an unauthorized party becoming the owner of the `Lib` contract.
+
+### Contract: `Vulnerable`
+
+1. **Constructor**:
+   - Sets the contract's `owner` variable to the deployer's address and initializes the `Lib` contract instance.
+
+2. **Fallback Function**:
+   - Executes a `delegatecall` to the `Lib` contract using the `msg.data`. This is a critical vulnerability because:
+     - **Arbitrary Function Execution**: Since any external account can call the `Vulnerable` contract and trigger the fallback function, an attacker can execute any function in the `Lib` contract using `delegatecall`. 
+     - **Delegatecall Context**: The `delegatecall` executes the `Lib` contract's code in the context of the `Vulnerable` contract. If a malicious actor invokes `setowner()` through the `Vulnerable` contract, they can change the `owner` variable in the `Lib` contract to their own address, gaining control over it. 
+
+3. **Owner Variable Manipulation**: The `owner` state variable in `Lib` will be set to the caller of `setowner()`, which can be manipulated by the fallback function. This means the attacker can effectively take ownership over the `Lib` contract.
+
+### Contract: `AttackVulnerable`
+
+1. **Constructor**:
+   - Accepts the address of the `Vulnerable` contract that serves as a target.
+
+2. **Attack Function**:
+   - The `attack()` function uses a `call` to invoke `setowner()` on the `Vulnerable` contract. Given that `attack()` does not have any restrictions, any user who can access the `AttackVulnerable` contract can perform this attack.
+   
+### Summary of Issues
+1. **Unrestricted Access Control**: The `setowner()` function in the `Lib` contract does not have any restrictions on who can call it.
+2. **Delegatecall Vulnerability**: The `fallback()` function in the `Vulnerable` contract improperly allows arbitrary function calls to `Lib`, making it susceptible to attacks that manipulate the state variables of `Vulnerable`.
+3. **Call Injection Risk**: An attacker can use the `AttackVulnerable` contract to manipulate the state of `Lib`, leading to the potential loss of funds or unauthorized control over the `Lib` contract.
+
+### Recommendations
+1. **Implement Access Control**: Use modifiers (like `onlyOwner`) to restrict access to sensitive functions like `setowner()` in `Lib`.
+2. **Avoid Delegate Call Patterns**: Reconsider using `delegatecall` unless absolutely necessary and ensure that the callee function cannot modify critical state variables directly.
+3. **Audit Call Logic**: Ensure that functions called through `fallback()` properly validate the origin of the calls and the permissions required to execute them.
+
+By addressing these issues, the security and integrity of the smart contracts can be significantly improved.","Certainly! Let's analyze each function in the smart contracts independently to identify potential vulnerabilities and issues.
+
+### Contract: `Lib`
+
+#### 1. Function: `setowner()`
+```solidity
+function setowner() public {
+    owner = msg.sender;
+}
+```
+**Analysis**:
+- **Unrestricted Access**: This function allows any user to set the `owner` variable to their own address. As there is no access control in place (such as only allowing the current owner to change ownership), any caller can take ownership of this contract by invoking this function.
+- **Impact**: An attacker can easily call this function to become the owner of the `Lib` contract, which can lead to unauthorized access to any functionalities associated with the owner address.
+
+**Recommendation**: Implement an access control mechanism, such as an `onlyOwner` modifier, that restricts ownership changes to the current owner only.
+
+---
+
+### Contract: `Vulnerable`
+
+#### 1. Constructor
+```solidity
+constructor(Lib _lib) {
+    owner = msg.sender;
+    lib = Lib(_lib);
+}
+```
+**Analysis**:
+- The constructor correctly initializes the `owner` and sets the `Lib` contract instance. However, there's no checking to validate that the supplied `_lib` address points to a legitimate `Lib` contract.
+
+**Recommendation**:
+- Consider adding checks to ensure `_lib` is a valid contract address and possibly additional checks to enforce certain requirements (e.g., ensuring `_lib` is deployed properly).
+
+#### 2. Fallback Function
+```solidity
+fallback() external payable {
+    address(lib).delegatecall(msg.data);
+}
+```
+**Analysis**:
+- **Use of Delegatecall**: This function allows arbitrary execution of any method in the `Lib` contract using `delegatecall`, which is dangerous. When an external caller sends a transaction to `Vulnerable`, `msg.data` could reference the `setowner()` method or any other method, leading to potential exploitation.
+- **State Context**: Since `delegatecall` executes in the context of the `Vulnerable` contract, any state changes made to the `Lib` contract would directly affect the state variables of `Vulnerable`. Therefore, if an attacker were to call `setowner()` through `delegatecall`, they could take control of the `owner` variable in `Lib` as well.
+- **No Payment Handling**: Additionally, the fallback function is marked as `payable`, which indicates it can receive Ether, but there's no logic to handle the received funds. This could lead to unexpected loss of assets or funds if not handled properly.
+
+**Recommendation**:
+- Remove the `delegatecall` functionality unless absolutely necessary. If delegate calls are required, restrict the call to only predefined, authorized functions, and consider implementing checks regarding the origin of calls.
+- If allowing payments, implement logic to manage received funds securely.
+
+---
+
+### Contract: `AttackVulnerable`
+
+#### 1. Constructor
+```solidity
+constructor(address _vulnerable) {
+    vulnerable = _vulnerable;
+}
+```
+**Analysis**:
+- The constructor simply initializes the `vulnerable` contract address. There are no issues related to security here, provided that the address refers to a valid `Vulnerable` contract.
+
+#### 2. Function: `attack()`
+```solidity
+function attack() public {
+    vulnerable.call(abi.encodeWithSignature(""setowner()""));
+}
+```
+**Analysis**:
+- **Arbitrary Call**: This function allows any user to invoke any function on the `Vulnerable` contract. Since it specifically calls `setowner()` directly, it is capable of triggering the delegate call to the `Lib` contract via the fallback function of `Vulnerable`. 
+- **No Access Control**: This function does not contain any access control, allowing anyone with access to `AttackVulnerable` to exploit the `Vulnerable` contract by taking ownership of the `Lib` contract.
+
+**Recommendation**:
+- Implement an access control mechanism to restrict who can call the `attack()` function to prevent unauthorized invocation. This could include requiring the caller to be the contract owner or a whitelisted user.
+
+---
+
+### Conclusion
+
+After analyzing each function independently, the following key issues were identified:
+- **Lib Contract**: Lacks proper access control in `setowner()`.
+- **Vulnerable Contract**: The fallback function introduces a significant risk through `delegatecall`; it also improperly handles payments.
+- **AttackVulnerable Contract**: Allows unrestricted invocation of the `Vulnerable` contract's functions.
+
+To secure the contracts:
+- Implement robust access controls.
+- Evaluate and limit the use of `delegatecall` with proper safeguards.
+- Ensure any Ether received is appropriately managed, and funds cannot be unintentionally locked or lost.
+
+By making these adjustments, the contracts can achieve better security and reduce the risk of fund loss or unauthorized access."

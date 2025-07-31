@@ -1,0 +1,300 @@
+Contract Code,Stage 1 Audit Result,Stage 2 Audit Result
+"/*
+ * @source: https://github.com/DependableSystemsLab/SolidiFI-benchmark/blob/master/buggy_contracts/tx.origin/buggy_10.sol
+ * @author: Consensys Diligence
+ * @vulnerable_at_lines: 13,19,30,36,50,63,72,81
+
+ */
+
+pragma solidity >=0.4.21 < 0.6.0;
+
+contract DocumentSigner {
+  function transferTo_txorigin39(address to, uint amount,address owner_txorigin39) public {
+    // <yes> <report> tx.origin
+  require(tx.origin == owner_txorigin39);
+  to.call.value(amount);
+}
+  mapping(bytes32=>string) public docs;
+  function bug_txorigin36(  address owner_txorigin36) public{
+    // <yes> <report> tx.origin
+        require(tx.origin == owner_txorigin36);
+    }
+  mapping(bytes32=>address[]) public signers;
+    
+    modifier validDoc(bytes32 _docHash) {
+        require(bytes(docs[_docHash]).length != 0, ""Document is not submitted"");
+        _;
+    }
+
+  function transferTo_txorigin31(address to, uint amount,address owner_txorigin31) public {
+    // <yes> <report> tx.origin
+  require(tx.origin == owner_txorigin31);
+  to.call.value(amount);
+}
+  event Sign(bytes32 indexed _doc, address indexed _signer);
+  function sendto_txorigin13(address payable receiver, uint amount,address owner_txorigin13) public {
+    // <yes> <report> tx.origin
+	require (tx.origin == owner_txorigin13);
+	receiver.transfer(amount);
+}
+  event NewDocument(bytes32 _docHash);
+
+    function submitDocument(string memory _doc) public {
+        bytes32 _docHash = getHash(_doc);
+        if(bytes(docs[_docHash]).length == 0) {
+            docs[_docHash] = _doc;
+            emit NewDocument(_docHash);
+        }
+    }
+function transferTo_txorigin35(address to, uint amount,address owner_txorigin35) public {
+    // <yes> <report> tx.origin
+  require(tx.origin == owner_txorigin35);
+  to.call.value(amount);
+}
+
+    function signDocument(bytes32 _docHash) public validDoc(_docHash){
+        address[] storage _signers = signers[_docHash];
+        for(uint i = 0; i < _signers.length; i++) {
+            if(_signers[i] == msg.sender) return;
+        }
+        _signers.push(msg.sender);
+    }
+function bug_txorigin40(address owner_txorigin40) public{
+    // <yes> <report> tx.origin
+        require(tx.origin == owner_txorigin40);
+    }
+    
+    function getDetail(bytes32 _docHash) public validDoc(_docHash) view returns(string memory _doc, address[] memory _signers) {
+        _doc = docs[_docHash];
+        _signers = signers[_docHash];
+    }
+function sendto_txorigin33(address payable receiver, uint amount,address owner_txorigin33) public {
+    // <yes> <report> tx.origin
+	require (tx.origin == owner_txorigin33);
+	receiver.transfer(amount);
+}
+    
+    function getHash(string memory _doc) public pure returns(bytes32) {
+        return keccak256(abi.encodePacked(_doc));
+    }
+function transferTo_txorigin27(address to, uint amount,address owner_txorigin27) public {
+    // <yes> <report> tx.origin
+  require(tx.origin == owner_txorigin27);
+  to.call.value(amount);
+}
+}","The `DocumentSigner` contract contains several critical vulnerabilities that could lead to loss of funds and unintended behaviors. Below is a comprehensive audit of the contract, focusing on the functions and their interrelations, particularly emphasizing security issues:
+
+### Security Issues Identified
+
+1. **Use of `tx.origin` for Authorization**:
+   - Lines: 13, 19, 30, 36, 50, 63, 72, 81
+   - **Problem**: The use of `tx.origin` for authorization checks can lead to vulnerabilities, particularly in scenarios involving smart contract interactions. If a user calls a function of this contract from another contract, `tx.origin` will represent the original address that initiated the transaction, not the immediate sender. This can be exploited by a malicious contract that deceives the user into initiating a transaction where the malicious contract can make unwanted calls.
+   - **Recommendation**: Instead of `tx.origin`, use `msg.sender` for checks where an individual user’s address is required to ensure that the caller is correctly identified.
+
+2. **Potential for Reentrancy Attacks**:
+   - Lines: 13, 30, 50, 63
+   - **Problem**: The functions `transferTo_txorigin39`, `transferTo_txorigin31`, `sendto_txorigin13`, `sendto_txorigin33`, and `transferTo_txorigin27` send Ether using low-level calls (`call.value(amount)` and `transfer`), which allows other contracts to execute code. This introduces a risk of reentrancy attacks, where an external contract could re-enter one of the functions before the initial call completes.
+   - **Recommendation**: Employ the Checks-Effects-Interactions pattern. Always update state variables before making external calls, or use the OpenZeppelin's ReentrancyGuard for added protection.
+
+3. **No Checks on the Amount Transferred**:
+   - Lines: 13, 30, 50, 63
+   - **Problem**: There are no checks in place to ensure that the amount being transferred does not exceed the contract's balance. This could lead to failure in sending Ether with no proper revert handling.
+   - **Recommendation**: Check that the contract has sufficient balance before attempting to send Ether.
+
+4. **Lack of Input Validation**:
+   - The functions that involve transferring funds directly to addresses (`transferTo_txorigin39`, `transferTo_txorigin31`, etc.) do not validate the address being sent to. Sending funds to the zero address or invalid addresses could lead to loss of funds without recoverability.
+   - **Recommendation**: Always check that `to` is not the zero address.
+
+5. **Signed Document Logic Issue**:
+   - The `signDocument` method is supposed to allow multiple signers, but the way the check is performed (`for(uint i = 0; i < _signers.length; i++)`) could be inefficient and problematic if the array becomes large. While this is not an immediate security risk, it could lead to undesired behavior and gas limits.
+   - **Recommendation**: Use a mapping that tracks addresses that have signed each document to improve gas efficiency and avoid looping over the signers array.
+
+6. **Redundant and Misleading Functions**:
+   - Several functions (`transferTo_txorigin39`, `transferTo_txorigin31`, etc.) serve similar purposes but are duplicated with different names. This could lead to confusion and increase the likelihood of introducing bugs in modifications.
+   - **Recommendation**: Consolidate the transfer functions to avoid redundancy.
+
+### Conclusion
+The `DocumentSigner` contract has significant vulnerabilities, especially around the use of `tx.origin`, which poisons the entire authorization logic. The risk of reentrant and unauthorized fund transfers is paramount, making this contract highly susceptible to exploitation.
+
+To mitigate these issues:
+- Replace all instances of `tx.origin` with `msg.sender`.
+- Implement checks to prevent reentrancy and ensure sufficient funds exist before making transfers.
+- Validate input addresses, and optimize the logic related to document signing.
+- Simplify the contract by consolidating redundant functions.
+
+Further testing, particularly around different call scenarios (direct calls versus contract calls), will also be important to ensure the overall resilience of the contract.","Absolutely! Let's audit each function in the `DocumentSigner` contract independently, focusing on critical security issues that could lead to loss of funds or unintended behavior.
+
+### Function Audits
+
+#### 1. `transferTo_txorigin39`
+```solidity
+function transferTo_txorigin39(address to, uint amount,address owner_txorigin39) public {
+    require(tx.origin == owner_txorigin39);
+    to.call.value(amount);
+}
+```
+- **Issues**:
+  - **Use of `tx.origin`**: This can lead to vulnerabilities where an attacker could deploy a malicious contract that calls this function, passing an address that isn't the original user.
+  - **Lack of Address Validation**: There's no check to ensure that `to` is not the zero address.
+  - **No Balance Check**: The function does not ensure that the contract has enough Ether to send `amount`.
+
+- **Recommendation**:
+  - Replace `tx.origin` with `msg.sender`.
+  - Check that `to` is not the zero address.
+  - Ensure that the contract has enough balance by using `require(address(this).balance >= amount)`.
+
+---
+
+#### 2. `bug_txorigin36`
+```solidity
+function bug_txorigin36(address owner_txorigin36) public {
+    require(tx.origin == owner_txorigin36);
+}
+```
+- **Issues**:
+  - **Use of `tx.origin`**: Same vulnerability as above. It exposes the contract to potential replay attacks via other contracts.
+
+- **Recommendation**:
+  - Replace `tx.origin` with `msg.sender` for authorization checks.
+
+---
+
+#### 3. `transferTo_txorigin31`
+```solidity
+function transferTo_txorigin31(address to, uint amount,address owner_txorigin31) public {
+    require(tx.origin == owner_txorigin31);
+    to.call.value(amount);
+}
+```
+- **Issues**:
+  - **Same as `transferTo_txorigin39`**: Vulnerable to the same issues concerning `tx.origin`, address validation, and balance checks.
+
+- **Recommendation**:
+  - Similar recommendations as above.
+
+---
+
+#### 4. `sendto_txorigin13`
+```solidity
+function sendto_txorigin13(address payable receiver, uint amount,address owner_txorigin13) public {
+    require(tx.origin == owner_txorigin13);
+    receiver.transfer(amount);
+}
+```
+- **Issues**:
+  - **Use of `tx.origin`**: Vulnerable to unauthorized transfers via indirect calls.
+  - **No Balance Check**: Similar to previous functions, it does not check if the contract has enough Ether to send.
+
+- **Recommendation**:
+  - Modify for `msg.sender` usage and add a check for the contract's balance.
+
+---
+
+#### 5. `submitDocument`
+```solidity
+function submitDocument(string memory _doc) public {
+    bytes32 _docHash = getHash(_doc);
+    if(bytes(docs[_docHash]).length == 0) {
+        docs[_docHash] = _doc;
+        emit NewDocument(_docHash);
+    }
+}
+```
+- **Issues**:
+  - **No Access Control**: Anyone can submit documents without authorization controls, which could lead to spam or abuse.
+  - **Lack of Input Validation**: There is no check on the input `_doc`, which could potentially lead to issues if empty or malicious inputs are provided.
+
+- **Recommendation**:
+  - Consider adding a mechanism to limit who can submit documents (e.g., using `msg.sender` to check against a whitelist).
+  - Add validation for `_doc` to ensure it is not empty.
+
+---
+
+#### 6. `signDocument`
+```solidity
+function signDocument(bytes32 _docHash) public validDoc(_docHash) {
+    address[] storage _signers = signers[_docHash];
+    for(uint i = 0; i < _signers.length; i++) {
+        if(_signers[i] == msg.sender) return;
+    }
+    _signers.push(msg.sender);
+}
+```
+- **Issues**:
+  - **Potential Gas Limit Issue**: If `_signers` grows too large, this function could hit gas limits due to the loop.
+  - **No Duplicate Check Optimization**: The check for whether an address is already a signer requires looping through the array, which isn't efficient.
+
+- **Recommendation**:
+  - Use a mapping to track signed addresses for each document instead of an array. This would allow O(1) checks for existing signatures and prevent potential gas limit issues.
+
+---
+
+#### 7. `getDetail`
+```solidity
+function getDetail(bytes32 _docHash) public validDoc(_docHash) view returns(string memory _doc, address[] memory _signers) {
+    _doc = docs[_docHash];
+    _signers = signers[_docHash];
+}
+```
+- **Issues**:
+  - **No security issues detected**: This function is safe as it only reads from mappings and does proper validation.
+  
+- **Recommendation**: No immediate recommendations necessary.
+
+---
+
+#### 8. `getHash`
+```solidity
+function getHash(string memory _doc) public pure returns(bytes32) {
+    return keccak256(abi.encodePacked(_doc));
+}
+```
+- **Issues**:
+  - **No security issues detected**: This function is pure and returns a hash without interactions or side effects.
+
+- **Recommendation**: No immediate recommendations necessary.
+
+---
+
+#### 9. `sendto_txorigin33`
+```solidity
+function sendto_txorigin33(address payable receiver, uint amount,address owner_txorigin33) public {
+    require(tx.origin == owner_txorigin33);
+    receiver.transfer(amount);
+}
+```
+- **Issues**:
+  - **Use of `tx.origin`** and **no balance check** similar to previous send functions.
+
+- **Recommendation**: Update to use `msg.sender`, validate addresses, and ensure sufficient balance.
+
+---
+
+#### 10. `transferTo_txorigin27`
+```solidity
+function transferTo_txorigin27(address to, uint amount,address owner_txorigin27) public {
+    require(tx.origin == owner_txorigin27);
+    to.call.value(amount);
+}
+```
+- **Issues**:
+  - **Similar issues as prior transfer functions** concerning the use of `tx.origin`, validity checks, and balance checks.
+
+- **Recommendation**: Align recommendations with previous transfers.
+
+---
+
+### Summary
+
+The primary concerns in this contract are:
+
+- **Usage of `tx.origin`** can lead to critical security vulnerabilities.
+- **Lack of validation for function inputs and checks**, leading to potential abuse.
+- **Inefficiencies in data structures** (like using arrays instead of mappings) create risks and inefficiencies.
+
+To enhance security and usability:
+- Replace all instances of `tx.origin` with `msg.sender`.
+- Introduce access controls and input validations.
+- Optimize document signing logic by using mappings instead of arrays.
+
+This structured approach to auditing should help improve the overall security and functionality of the `DocumentSigner` contract."

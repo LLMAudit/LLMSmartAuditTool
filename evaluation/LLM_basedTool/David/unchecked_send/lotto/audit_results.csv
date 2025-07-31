@@ -1,0 +1,146 @@
+Contract Code,Stage 1 Audit Result,Stage 2 Audit Result
+"/*
+ * @source: https://github.com/sigp/solidity-security-blog
+ * @author: Suhabe Bugrara
+ * @vulnerable_at_lines: 20,27
+ */
+
+ pragma solidity ^0.4.18;
+ 
+ contract Lotto {
+
+     bool public payedOut = false;
+     address public winner;
+     uint public winAmount;
+
+     // ... extra functionality here
+
+     function sendToWinner() public {
+         require(!payedOut);
+         // <yes> <report> UNCHECKED_LL_CALLS
+         winner.send(winAmount);
+         payedOut = true;
+     }
+
+     function withdrawLeftOver() public {
+         require(payedOut);
+         // <yes> <report> UNCHECKED_LL_CALLS
+         msg.sender.send(this.balance);
+     }
+ }
+","Upon analyzing this Solidity smart contract, I have identified several critical issues that can lead to potential loss of funds, particularly in relation to the usage of low-level calls and other logical errors. Below are the issues outlined by function, followed by additional concerns that arise from the contract's logic and structure.
+
+### Function `sendToWinner`
+
+1. **Unchecked Low-Level Call**:
+   - The use of `winner.send(winAmount);` is problematic because if the `send` call fails (due to the winner's contract reverting or running out of gas), it would not throw an error in the current Solidity version and instead would simply not transfer the funds, which means funds will be locked forever. 
+   - Recommendation: Use `transfer` instead of `send`, as `transfer` automatically reverts on failure, or directly check the success with `call.value()` in modern Solidity versions. 
+
+2. **Logical Vulnerability**:
+   - The function checks if `payedOut` is false but does not ensure that `winner` has been set, meaning it could execute with a null address (0x0). Sending Ether to the zero address will effectively burn the funds.
+   - Recommendation: Add a check to ensure `winner` is a valid address before attempting to send funds.
+
+### Function `withdrawLeftOver`
+
+1. **Unchecked Low-Level Call**:
+   - Similar to the above function, the use of `msg.sender.send(this.balance);` poses a risk. The lack of error handling can lead to situations where Ether is not successfully sent to the caller if they are a contract account or if the transfer fails due to other reasons.
+   - Recommendation: Employ `transfer` instead, or ensure that the success of the call is handled appropriately with a return value.
+
+2. **Timing Dependency**:
+   - The contract’s design implies that after `payedOut` becomes `true`, the extra funds can be withdrawn. However, if `sendToWinner()` was called only once and a failure occurs, if the state of `payedOut` is altered incorrectly without funds being transferred, these funds could be locked indefinitely.
+   - It would be best to prevent the state variable from being modified if the transfer fails.
+
+### General Issues
+
+1. **Reentrancy Vulnerability**:
+   - The contract lacks measures to guard against reentrancy attacks (e.g., using a mutex pattern). If `winner` were able to be a contract, they could call back into the `withdrawLeftOver` function during the `send` and drain the contract of its funds. 
+   - Recommendation: Implement a non-reentrant modifier on functions that transfer Ether.
+
+2. **Gas Limit**:
+   - While this doesn't appear to be an immediate issue in this specific implementation, any function that relies on external calls should be aware of the gas limit and understand that unpredicted gas consumption could lead to unintended failures.
+
+3. **State Handling**:
+   - Ensure that the contract’s state is changed only after significant actions have succeeded to maintain consistency and prevent inconsistent states especially in failure cases.
+
+4. **Absence of Access Control**:
+   - The current contract does not implement any access control for functions. This means anyone can call the `sendToWinner` and `withdrawLeftOver` functions, potentially leading to unauthorized withdrawals.
+   - Recommendation: Include modifiers to restrict access to certain functions, such as only allowing the contract creator to call them.
+
+### Conclusion
+
+This smart contract has critical vulnerabilities that could lead to loss of funds or locking of funds indefinitely. To mitigate these issues, it is imperative to:
+
+- Replace low-level calls with safer alternatives,
+- Implement checks for valid addresses and handle function outcomes properly,
+- Introduce reentrancy protections,
+- Ensure proper access controls are in place.
+
+Revising this contract according to the findings above would greatly improve its security posture.","Certainly! Let’s go through each function in the Solidity contract independently and assess them for security issues and logic errors.
+
+### Function: `sendToWinner()`
+
+```solidity
+function sendToWinner() public {
+    require(!payedOut);
+    // <yes> <report> UNCHECKED_LL_CALLS
+    winner.send(winAmount);
+    payedOut = true;
+}
+```
+
+#### Security Issues:
+1. **Unchecked Low-Level Call**:
+   - The use of `winner.send(winAmount);` can lead to funds being lost if the transfer fails or if the receiving address is a contract that doesn't implement the `fallback()` function correctly. The `send` method returns a boolean indicating success, but if it fails, no revert is thrown, which could result in the contract’s state reflecting that the funds were sent when they were not.
+
+   - **Recommendation**: Instead of `send`, use `winner.transfer(winAmount);` or use `call.value(winAmount)()` and handle its success.
+
+2. **Null Address Checking**:
+   - There’s no check to ensure `winner` has been set to a valid address (not zero). If `winner` is zero (0x0), attempting to send Ether will result in a failed transaction (or Ether being effectively burned).
+
+   - **Recommendation**: Add a check to ensure `winner` is not the zero address, e.g. `require(winner != 0);`.
+
+#### Logic Issues:
+- The function changes the state variable `payedOut` to `true` after the transfer is attempted, which may result in an inconsistent contract state if the send fails. 
+
+- **Recommendation**: Only set `payedOut` to `true` after a successful transfer.
+
+
+### Function: `withdrawLeftOver()`
+
+```solidity
+function withdrawLeftOver() public {
+    require(payedOut);
+    // <yes> <report> UNCHECKED_LL_CALLS
+    msg.sender.send(this.balance);
+}
+```
+
+#### Security Issues:
+1. **Unchecked Low-Level Call**:
+   - Similar to the previous function, `msg.sender.send(this.balance);` can lead to loss of funds if the call fails. Unlike `send`, which returns a boolean, failure in sending can result in funds being stranded in the contract.
+
+   - **Recommendation**: Use `msg.sender.transfer(this.balance);` to ensure that the transaction reverts on failure.
+
+2. **Potential for Unwithdrawn Funds**:
+   - If `payedOut` is false (but in practice it cannot reach this state at this point since this function checks for it), the contract is vulnerable in a scenario where the state has been manipulated. This primarily ties back to issues in `sendToWinner()`.
+
+#### Logic Issues:
+- Like the previous function, there's no guarantee that the intended transfer will succeed, and if the balance is zero or minimal, calling this function could still encounter issues depending on the implementation.
+
+- **Recommendation**: Consider adding a check for `this.balance > 0` before attempting the transfer, however it may not be strictly necessary if the contract is properly handled.
+
+
+### General Observations for Both Functions
+- Both functions utilize a pattern of sending Ether to external addresses without sufficient checks for failures and without handling those failures appropriately. This can lead to locked funds.
+  
+- Additionally, these functions lack proper access controls, meaning anyone can trigger them, which might lead to unauthorized interactions if the contract behavior changes or if malicious users are involved.
+
+- If `sendToWinner` is called multiple times (in the case it does not lock funds correctly), it could create a risk of letting bad actors withdraw from the contract.
+
+### Conclusion
+Each function independently has critical vulnerabilities that can lead to loss of funds. 
+
+1. In `sendToWinner()`, ensure the use of safe transfer methods and check for valid addresses.
+2. In `withdrawLeftOver()`, avoid low-level calls and ensure that funds can be safely transferred.
+
+Both functions must also implement checks for reentrancy and access control to mitigate unauthorized withdrawals and attacks. Furthermore, consider utilizing checks-effects-interactions pattern to ensure proper handling of states."

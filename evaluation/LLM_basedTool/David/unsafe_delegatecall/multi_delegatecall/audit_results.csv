@@ -1,0 +1,201 @@
+Contract Code,Stage 1 Audit Result,Stage 2 Audit Result
+"// SPDX-License-Identifier: MIT
+
+/*
+ * @source: https://solidity-by-example.org/app/multi-delegatecall/
+ * @author: 
+ * @vulnerable_at_lines: 22
+ */
+
+
+pragma solidity ^0.8.17;
+
+contract MultiDelegatecall {
+    error DelegatecallFailed();
+
+    function multiDelegatecall(
+        bytes[] memory data
+    ) external payable returns (bytes[] memory results) {
+        results = new bytes[](data.length);
+
+        for (uint i; i < data.length; i++) {
+            // <yes> <report> unsafe delegatecall
+            (bool ok, bytes memory res) = address(this).delegatecall(data[i]);
+            if (!ok) {
+                revert DelegatecallFailed();
+            }
+            results[i] = res;
+        }
+    }
+}
+
+// Why use multi delegatecall? Why not multi call?
+// alice -> multi call --- call ---> test (msg.sender = multi call)
+// alice -> test --- delegatecall ---> test (msg.sender = alice)
+contract TestMultiDelegatecall is MultiDelegatecall {
+    event Log(address caller, string func, uint i);
+
+    function func1(uint x, uint y) external {
+        // msg.sender = alice
+        emit Log(msg.sender, ""func1"", x + y);
+    }
+
+    function func2() external returns (uint) {
+        // msg.sender = alice
+        emit Log(msg.sender, ""func2"", 2);
+        return 111;
+    }
+
+    mapping(address => uint) public balanceOf;
+
+    // WARNING: unsafe code when used in combination with multi-delegatecall
+    // user can mint multiple times for the price of msg.value
+    function mint() external payable {
+        balanceOf[msg.sender] += msg.value;
+    }
+}
+
+contract Helper {
+    function getFunc1Data(uint x, uint y) external pure returns (bytes memory) {
+        return abi.encodeWithSelector(TestMultiDelegatecall.func1.selector, x, y);
+    }
+
+    function getFunc2Data() external pure returns (bytes memory) {
+        return abi.encodeWithSelector(TestMultiDelegatecall.func2.selector);
+    }
+
+    function getMintData() external pure returns (bytes memory) {
+        return abi.encodeWithSelector(TestMultiDelegatecall.mint.selector);
+    }
+}
+","This contract contains multiple security vulnerabilities related to the use of `delegatecall`, and it requires careful examination of each function and their inter-relations, particularly focusing on the potential for loss of funds. Below is a critical audit of the contract, highlighting various issues.
+
+### Contract Overview
+The main contract `MultiDelegatecall` allows for multiple `delegatecall` operations in a single transaction. The `TestMultiDelegatecall` contract inherits from `MultiDelegatecall` and includes state-changing functions like `mint`. The `Helper` contract is used to prepare data for function calls.
+
+### Critical Security Issues
+
+#### 1. Unsafe Use of `delegatecall`
+- **Problem**: The `multiDelegatecall` function uses `delegatecall` on `data`, which could be crafted by an attacker. If an attacker can control the input of the `data` array, they can effectively execute arbitrary functions in the context of the calling contract, leading to potential state manipulation, fund loss, or even self-destruction of the contract.
+- Alongside that, if an arbitrary function modifies state variables or performs operations that an attacker controls, they could drain funds or manipulate state in unintended ways.
+
+#### 2. Logic Issue: Vulnerable `mint` Function
+- **Problem**: The `mint` function modifies the `balanceOf` mapping based on `msg.value` directly, which could be abused in conjunction with `delegatecall`. If `multiDelegatecall` is invoked with `mint` calls, a user can potentially call `mint` multiple times in one transaction for the same `msg.value`. 
+- This means an attacker could execute `mint` multiple times, increasing their balance without sending the corresponding Ether amount, effectively ""minting"" without payment.
+
+#### 3. Lack of Access Control
+- **Problem**: There are no access controls on critical functions such as `mint`, meaning anyone can execute them, which is generally intended behavior, but when combined with vulnerabilities in `delegatecall` can lead to exploitation.
+
+### Recommendations and Mitigation
+
+1. **Avoid `delegatecall` for Unknown Inputs**: Carefully vet the input to the `multiDelegatecall` function. It is safer to use `staticcall` or a design that requires predetermined targets for calls to avoid malicious code execution.
+
+2. **Implement Reentrancy Guards**: Utilizing a reentrancy guard pattern could help mitigate the risks associated with the `mint` function being-called multiple times during a single execution context.
+
+3. **Limit `delegatecall` Targets**: If `delegatecall` usage is necessary, implement logic to restrict the targets of the calls to safe known contracts to avoid executing malicious code.
+
+4. **Validation and Limits on `msg.value`**: Add validation logic to the `mint` function, such as requiring that the value sent must meet a specific price logic, so manipulated calls do not lead to unintended state changes or fund losses.
+
+5. **Testing**: Implement thorough testing (unit tests and integration tests) to cover a variety of edge cases, especially focusing on attacks that could exploit the vulnerabilities.
+
+### Conclusion
+The current implementation of the contract demonstrates vulnerabilities that could lead to loss of funds, primarily around the improper usage of `delegatecall` and the lack of access control within mutable state functions. As an overall security recommendation, consider refactoring the contract to eliminate the risks associated with direct user input leading to arbitrary execution of contract logic.","Certainly! Let's analyze each function of the provided smart contract independently and identify security vulnerabilities and logic issues.
+
+### 1. **MultiDelegatecall Contract**
+
+#### `multiDelegatecall`
+```solidity
+function multiDelegatecall(
+    bytes[] memory data
+) external payable returns (bytes[] memory results) {
+    results = new bytes[](data.length);
+
+    for (uint i; i < data.length; i++) {
+        (bool ok, bytes memory res) = address(this).delegatecall(data[i]);
+        if (!ok) {
+            revert DelegatecallFailed();
+        }
+        results[i] = res;
+    }
+}
+```
+- **Vulnerabilities**:
+  - **Unsafe `delegatecall`**: The function takes arbitrary bytecode as input (`data`) and calls `delegatecall` on it. If an attacker controls the input, they can manipulate the state of this contract and perform unauthorized actions.
+  - **State Changes in the Context of the Calling Contract**: Since `delegatecall` uses the `msg.sender` of the calling context (which is the caller of `multiDelegatecall`), it can lead to unexpected changes in the contract's state.
+  
+- **Recommendations**:
+  - Avoid allowing arbitrary `delegatecall` inputs. If multiple calls are needed, this can be handled through predefined function selectors or parameters.
+
+### 2. **TestMultiDelegatecall Contract**
+
+#### `func1`
+```solidity
+function func1(uint x, uint y) external {
+    emit Log(msg.sender, ""func1"", x + y);
+}
+```
+- **Vulnerabilities**: 
+  - **No Critical Issues**: This function merely logs an event based on inputs provided and does not manipulate state or Ether directly. But, be cautious of the implications if called via `delegatecall`, as the context matters in that scenario.
+  
+- **Recommendations**: 
+  - Ensure any state changes are handled with care if `func1` were combined with other operations where state is critical.
+
+#### `func2`
+```solidity
+function func2() external returns (uint) {
+    emit Log(msg.sender, ""func2"", 2);
+    return 111;
+}
+```
+- **Vulnerabilities**: 
+  - **No Critical Issues**: Similar to `func1`, the function simply logs an event and returns a static value. However, if engaged via `delegatecall`, any state manipulations done in the calling context can still lead to consistent issues.
+  
+- **Recommendations**: 
+  - Be aware of the same context concerns as noted above.
+
+#### `mint`
+```solidity
+function mint() external payable {
+    balanceOf[msg.sender] += msg.value;
+}
+```
+- **Vulnerabilities**: 
+  - **Reentrancy Risk**: Since there is no guard against reentrant calls, this function can be called multiple times within the same transaction especially if called within `multiDelegatecall`. An attacker could mint multiple times for the same `msg.value`, leading to unintended balances.
+  - **Lack of Value Validation**: This function could potentially allow users to mint without sending a valid payment if invoked through delegate calls.
+  
+- **Recommendations**: 
+  - Implement a reentrancy guard to prevent reentrant calls.
+  - Add checks for validating `msg.value` against expected minting costs, ensuring users send the right amount when minting.
+
+### 3. **Helper Contract**
+
+#### `getFunc1Data`
+```solidity
+function getFunc1Data(uint x, uint y) external pure returns (bytes memory) {
+    return abi.encodeWithSelector(TestMultiDelegatecall.func1.selector, x, y);
+}
+```
+- **Analysis**: This helper function simply prepares data to call `func1`. No vulnerabilities exist here as it does not execute any logic by itself.
+  
+#### `getFunc2Data`
+```solidity
+function getFunc2Data() external pure returns (bytes memory) {
+    return abi.encodeWithSelector(TestMultiDelegatecall.func2.selector);
+}
+```
+- **Analysis**: Similar to `getFunc1Data`, this function simply prepares data for calling `func2`. No issues present.
+
+#### `getMintData`
+```solidity
+function getMintData() external pure returns (bytes memory) {
+    return abi.encodeWithSelector(TestMultiDelegatecall.mint.selector);
+}
+```
+- **Analysis**: This function prepares data to call the `mint` function. While there are no vulnerabilities directly associated with this function, it facilitates the creation of calls that could exploit the vulnerabilities in the `mint` function when used with `multiDelegatecall`.
+
+### Overall Conclusion
+1. The use of `delegatecall` with arbitrary data in the `multiDelegatecall` function poses the most significant risk of unauthorized state changes.
+2. The `mint` function presents vulnerabilities associated with reentrancy and potentially allowing multiple mints for a single ETH send.
+3. The helper functions, while benign individually, can indirectly lead to issues when used to call vulnerable functions, especially if reused in the context of `delegatecall`.
+
+**Recommended Actions**: Implement access controls, reentrancy guards, and careful input validation for all public/state-changing functions, especially those dealing with Ether. Consider refactoring the contract to avoid unsafe `delegatecall`."

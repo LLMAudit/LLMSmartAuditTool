@@ -1,0 +1,225 @@
+Contract Code,Stage 1 Audit Result,Stage 2 Audit Result
+"/*
+ * @source: https://github.com/SmartContractSecurity/SWC-registry/blob/master/test_cases/reentracy/modifier_reentrancy.sol
+ * @author: - 
+ * @vulnerable_at_lines: 15
+ */
+
+pragma solidity ^0.4.24;
+
+contract ModifierEntrancy {
+  mapping (address => uint) public tokenBalance;
+  string constant name = ""Nu Token"";
+
+  //If a contract has a zero balance and supports the token give them some token
+  // <yes> <report> REENTRANCY
+  function airDrop() hasNoBalance supportsToken  public{
+    tokenBalance[msg.sender] += 20;
+  }
+
+  //Checks that the contract responds the way we want
+  modifier supportsToken() {
+    require(keccak256(abi.encodePacked(""Nu Token"")) == Bank(msg.sender).supportsToken());
+    _;
+  }
+  //Checks that the caller has a zero balance
+  modifier hasNoBalance {
+      require(tokenBalance[msg.sender] == 0);
+      _;
+  }
+}
+
+contract Bank{
+    function supportsToken() external pure returns(bytes32){
+        return(keccak256(abi.encodePacked(""Nu Token"")));
+    }
+}
+
+contract attack{ 
+    //An example of a contract that breaks the contract above.
+    bool hasBeenCalled;
+    function supportsToken() external returns(bytes32){
+        if(!hasBeenCalled){
+            hasBeenCalled = true;
+            ModifierEntrancy(msg.sender).airDrop();
+        }
+        return(keccak256(abi.encodePacked(""Nu Token"")));
+    }
+    function call(address token) public{
+        ModifierEntrancy(token).airDrop();
+    }
+}
+","The provided Solidity contract contains several important areas to audit, specifically focusing on vulnerabilities and logical issues that may lead to the loss of funds. Let’s critically examine each function and modifier to identify potential risks:
+
+### Audit of `ModifierEntrancy`
+
+1. **Function: `airDrop()`**
+   - **Modifiers**: 
+     - `hasNoBalance`: This checks if the caller has a zero balance before allowing the execution of the function.
+     - `supportsToken`: This ensures the caller is a valid token-supporting contract, which is checked by calling `supportsToken()` in the `Bank` contract.
+   - **Vulnerability**: The `airDrop()` function is vulnerable to reentrancy attacks due to the way it calls external contracts. Specifically, when the `supportsToken()` modifier calls the `supportsToken()` function of another contract (like the `Bank` or `attack` contract), if that contract is malicious (as shown by the `attack` contract), it can re-enter the `airDrop()` function again before the first call is completed. This will allow the attacker to repeatedly stake tokens and manipulate the balance checks.
+   - **Loss of Funds**: An attacker can recursively call `airDrop()` to falsely increase their token balance beyond what the contract was originally capable of allowing.
+
+2. **Modifier: `supportsToken()`**
+   - This modifier relies on the assumption that the contract at the given address (`msg.sender`) will return a certain value when calling `supportsToken()`. However, an attacker can implement any logic they want in their contract, allowing for malicious exploits and potentially bypassing the expected logic.
+
+3. **Modifier: `hasNoBalance`**
+   - This modifier correctly enforces that the caller must have a zero balance to receive additional tokens. However, because of the reentrancy issue in conjunction with the previous modifiers, this protection could be bypassed.
+
+### Audit of `Bank` Contract
+
+- The `Bank` contract itself is straightforward and simply returns a constant value that matches the expected token string. There are no vulnerabilities in this contract per se, but it's used in the context of the vulnerable `airDrop()` function, showing how external contracts can manipulate the behavior of other contracts.
+
+### Audit of `attack` Contract
+
+1. **Function: `supportToken()`**
+   - This function first checks if `hasBeenCalled` is `false`. If it is, it sets it to `true` and calls `airDrop()` on `ModifierEntrancy`. This allows the attack contract to execute the `airDrop()` function of `ModifierEntrancy` and potentially gain tokens whenever the function is invoked due to the recursive nature of how the `airDrop()` function is structured.
+   - In essence, this function is designed to exploit the `ModifierEntrancy` contract, illustrating how the ability to call `airDrop()` recursively can be misused.
+
+2. **Function: `call(address token)`**
+   - This function directly invokes the `airDrop()` on the specified token address (could be `ModifierEntrancy`), allowing an attacker to easily trigger the vulnerability from an external transaction.
+
+### Conclusion
+
+#### Identified Issues:
+- **Reentrancy Vulnerability**: The most critical issue lies in the potential reentrancy attack allowed by the current function modifiers. An attacker can effectively exploit this and manipulate their token balance, leading to unauthorized or excessive token issuance.
+- **Assumptions on External Contracts**: The contract is reliant on external contracts behaving as expected, which may lead to unforeseen exploitation from contracts designed to respond maliciously.
+- **Lack of Checks-Effects-Interactions Pattern**: The code does not follow the recommended checks-effects-interactions pattern, which would help mitigate reentrancy attacks.
+
+### Recommendations:
+To mitigate these vulnerabilities, the following alterations can be made:
+
+1. **Reentrancy Guard**: Implement a proper guard mechanism using a mutex to prevent reentrant calls.
+2. **Use the Checks-Effects-Interactions Pattern**: First update the state (token balance) and then call external contracts (if needed) to avoid reentrancy issues.
+3. **Consider a More Strict Access Control**: Evaluate whether a private or internal function for `airDrop()` would better secure the contract against external interference.
+
+Properly addressing these points would significantly enhance the security of the `ModifierEntrancy` contract and help prevent the loss of funds via reentrancy and other attack vectors.","Certainly! Let’s conduct a detailed review of each function within the `ModifierEntrancy`, `Bank`, and `attack` contracts independently to identify security issues and vulnerabilities.
+
+### Contract: `ModifierEntrancy`
+
+1. **Function: `airDrop()`**
+
+   - **Definition**: 
+     ```solidity
+     function airDrop() hasNoBalance supportsToken  public{
+         tokenBalance[msg.sender] += 20;
+     }
+     ```
+   - **Analysis**:
+     - **Modifiers**: 
+       - `hasNoBalance`: This ensures that the caller has a zero token balance before receiving the airdrop.
+       - `supportsToken`: This checks for the behavior of an external contract using `Bank(msg.sender).supportsToken()`.
+     - **Vulnerabilities**:
+       - **Reentrancy**: The function can be subject to reentrancy attacks. Since `supportsToken` calls an external contract's method that can potentially call back into `airDrop()`, an attacker could exploit this mechanism to execute multiple `airDrop()` calls, thereby inflating their token balance unfairly.
+
+   - **Conclusion for `airDrop()`**: This function contains a critical reentrancy vulnerability. An attacker can manipulate the call stack and increase their token balance without restriction, resulting in unauthorized token distribution.
+
+---
+
+2. **Modifier: `supportsToken()`**
+
+   - **Definition**: 
+     ```solidity
+     modifier supportsToken() {
+         require(keccak256(abi.encodePacked(""Nu Token"")) == Bank(msg.sender).supportsToken());
+         _;
+     }
+     ```
+   - **Analysis**:
+     - The modifier checks whether the calling contract correctly aligns with supporting the token by ensuring a specific return value.
+     - **Vulnerabilities**: 
+       - **Assumptions on External Contracts**: There is an assumption that the external contract (`msg.sender`) implements a valid `supportsToken()` function correctly. If an attacker deploys a contract that returns the required value but includes malicious logic, it can enable exploitation (e.g., reentrance).
+  
+   - **Conclusion for `supportsToken()`**: While it is functional, it depends heavily on the behavior of an external contract. It can be bypassed or manipulated through carefully constructed external contracts.
+
+---
+
+3. **Modifier: `hasNoBalance`**
+
+   - **Definition**: 
+     ```solidity
+     modifier hasNoBalance {
+         require(tokenBalance[msg.sender] == 0);
+         _;
+     }
+     ```
+   - **Analysis**:
+     - This modifier ensures that a caller must have a zero balance to access certain functions, specifically `airDrop()`.
+     - **Vulnerabilities**: 
+       - While it effectively prevents users with a non-zero balance from receiving an airdrop, this modifier does not inherently prevent the reentrancy issue identified in `airDrop()`. Once inside, due to external calls, the checks can be bypassed.
+  
+   - **Conclusion for `hasNoBalance`**: Effective in isolation, but fails in the context of reentrancy. If not checked appropriately, this can be taken advantage of, especially with nested calls.
+
+---
+
+### Contract: `Bank`
+
+1. **Function: `supportsToken()`**
+
+   - **Definition**: 
+     ```solidity
+     function supportsToken() external pure returns(bytes32){
+         return(keccak256(abi.encodePacked(""Nu Token"")));
+     }
+     ```
+   - **Analysis**:
+     - This function is designed to always return the hash of the string ""Nu Token"".
+     - **Vulnerabilities**: 
+       - This function itself poses no immediate vulnerabilities as it is a simple read-only function and does not modify any state variables.
+     - It serves its purpose in checking against the `supportsToken` modifier but does not introduce any security issues.
+
+   - **Conclusion for `Bank`**: This contract is simple and straightforward, lacking direct vulnerabilities. However, it could be exploited indirectly through misuse of the `ModifierEntrancy` contract.
+
+---
+
+### Contract: `attack`
+
+1. **Function: `supportsToken()`**
+
+   - **Definition**: 
+     ```solidity
+     function supportsToken() external returns(bytes32){
+         if(!hasBeenCalled){
+             hasBeenCalled = true;
+             ModifierEntrancy(msg.sender).airDrop();
+         }
+         return(keccak256(abi.encodePacked(""Nu Token"")));
+     }
+     ```
+   - **Analysis**:
+     - This function allows the attacker to exploit the `airDrop()` function of `ModifierEntrancy` by calling it when `hasBeenCalled` is false. The inclusion of the state variable allows for a single call to be made before returning the expected token signature.
+     - **Vulnerabilities**:
+       - **Reentrancy Facilitation**: The purpose of this function is to exploit the reentrancy vulnerability in `ModifierEntrancy`. Once invoked, the attacker can trigger the `airDrop()` multiple times, further increasing their own balance.
+       - It is specifically crafted to manipulate the flow of the `ModifierEntrancy` contract.
+
+   - **Conclusion for `supportsToken()`**: Highly dangerous in context, as it specifically fulfills the purpose of exploiting the vulnerability identified in `airDrop()`.
+
+---
+
+2. **Function: `call(address token)`**
+
+   - **Definition**: 
+     ```solidity
+     function call(address token) public{
+         ModifierEntrancy(token).airDrop();
+     }
+     ```
+   - **Analysis**:
+     - This function allows any user to pass in an address of the `ModifierEntrancy` contract and call the `airDrop()` function.
+     - **Vulnerabilities**:
+       - **Facilitated Attack**: By providing an external invocation method, this function enables any user (and especially malicious users) to trigger the vulnerable `airDrop()`, amplifying the effect of the reentrancy attack.
+       - This function further removes any restrictions and allows more flexible manipulation of the `airDrop()`, increasing the attack surface.
+
+   - **Conclusion for `call()`**: Allows for unauthorized access to the vulnerable function, significantly raising the risk of exploitation.
+
+---
+
+### Overall Summary
+
+Each function's analysis reveals the critical vulnerability related to reentrancy in `airDrop()` and the improper reliance on external contracts within the `supportsToken()` modifier. The `attack` contract is explicitly designed to exploit these vulnerabilities.
+
+The principal flaws stem from:
+- The reentrancy vulnerability allowing recursive calls to inflate the `tokenBalance`.
+- Dependency on external contracts for validation, which can be manipulated through user-created contracts.
+
+The solutions to these issues involve enforcing security best practices like mutexes against reentrant calls, employing checks-effects-interactions patterns, and upgrading to newer Solidity versions that provide more safety features and best practices."

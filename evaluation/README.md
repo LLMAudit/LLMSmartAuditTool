@@ -189,7 +189,7 @@ This [dataset](https://github.com/LLMAudit/LLMSmartAuditTool/tree/main/evaluatio
 
 ## 📊 Evaluation Results
 
-|Dataset| Mode | Results |
+|Dataset| Methodology | Results |
 |-------|---------|---------------|
 |Labeled| **Board Analysis (BA)** | [Summary](https://github.com/LLMAudit/LLMSmartAuditTool/tree/main/evaluation/LabeledResult/BA) |
 |Labeled| **Target Analysis (TA)** | [Summary](https://github.com/LLMAudit/LLMSmartAuditTool/tree/main/evaluation/LabeledResult/TA) |
@@ -200,7 +200,8 @@ This [dataset](https://github.com/LLMAudit/LLMSmartAuditTool/tree/main/evaluatio
 |Real-World| **Hybrid Mode**| [Findings]()|
 |Real-World| **Traditional Tools**| [Findings](https://github.com/LLMAudit/LLMSmartAuditTool/blob/main/evaluation/RealworldResult/traditional_tools_results.csv)|
 |CVE| **Hybrid Mode**| [Findings](https://github.com/LLMAudit/LLMSmartAuditTool/blob/main/evaluation/RealworldResult/CVE)|
-
+|Labeled| **David's work and GPTScan**| [Findings](https://github.com/LLMAudit/LLMSmartAuditTool/blob/main/evaluation/RealworldResult/LLM_basedTool)|
+|Real-World| **SingleLLM + LLMSmartAudit Prompt**| [Code & Findings](https://github.com/LLMAudit/LLMSmartAuditTool/blob/main/evaluation/RealworldResult/singleLLMEva)|
 
 For more detailed evaluation results, please visit our [HuggingFace Repository](https://huggingface.co/datasets/LLMAuditing/FTSmartAuditResults).
 

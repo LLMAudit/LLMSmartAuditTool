@@ -1,0 +1,385 @@
+Contract Code,Stage 1 Audit Result,Stage 2 Audit Result
+"/*
+ * @source: https://etherscan.io/token/0xdf44a80c17813789f60090638827aeb23698b122#code
+ * @author: Token stableDEX (STDEX)
+ * @vulnerable_at_lines: 0
+ */
+
+pragma solidity ^0.5.0;
+
+library SafeMath {
+    
+  function safeMul(uint256 a, uint256 b) internal pure returns (uint256) {
+    uint256 c = a * b;
+    assert(a == 0 || c / a == b);
+    return c;
+  }
+
+  function safeDiv(uint256 a, uint256 b) internal pure returns (uint256) {
+    assert(b > 0);
+    uint256 c = a / b;
+    return c;
+  }
+
+  function safeSub(uint256 a, uint256 b) internal pure returns (uint256) {
+    assert(b <= a);
+    return a - b;
+  }
+
+  function safeAdd(uint256 a, uint256 b) internal pure returns (uint256) {
+    uint256 c = a + b;
+    assert(c >= a && c >= b);
+    return c;
+  }
+  
+}
+
+contract Owned {
+
+    address public owner;
+    bool public transferStatus = true;
+    event ownershipChanged(address indexed _invoker, address indexed _newOwner);        
+    event transferStatusChanged(bool _newStatus);
+    uint256 public _totalSupply = 100000000000000000000000000;
+    mapping(address => uint256) userBalances;
+    
+    event Transfer(address indexed _from, address indexed _to, uint256 _value);
+    event Approval(address indexed _owner, address indexed _spender, uint256 _value);
+    
+    constructor() public {
+        owner = msg.sender;
+    }
+
+    modifier _onlyOwner() {
+        require(msg.sender == owner);
+        _;
+    }
+
+    function changeOwner(address _AddressToMake) public _onlyOwner returns (bool _success) {
+
+        owner = _AddressToMake;
+        emit ownershipChanged(msg.sender, _AddressToMake);
+
+        return true;
+
+    }
+
+    function changeTransferStatus(bool _newStatus) public _onlyOwner returns (bool _success) {
+
+        transferStatus = _newStatus;
+        emit transferStatusChanged(_newStatus);
+    
+        return true;
+    
+    }
+	
+   function mint(uint256 _amount) public _onlyOwner returns (bool _success) {
+
+        _totalSupply = SafeMath.safeAdd(_totalSupply, _amount);
+        userBalances[msg.sender] = SafeMath.safeAdd(userBalances[msg.sender], _amount);
+	
+        emit Transfer(address(0), msg.sender, _amount);
+
+        return true;
+
+    }    
+	
+   function mintToAddress(address _address, uint256 _amount) public _onlyOwner returns (bool _success) {
+
+        _totalSupply = SafeMath.safeAdd(_totalSupply, _amount);
+        userBalances[_address] = SafeMath.safeAdd(userBalances[_address], _amount);
+	
+        emit Transfer(address(0), _address, _amount);
+
+        return true;
+
+    }
+
+    function burn(uint256 _amount) public _onlyOwner returns (bool _success) {
+
+        require(SafeMath.safeSub(userBalances[msg.sender], _amount) >= 0);
+        _totalSupply = SafeMath.safeSub(_totalSupply, _amount);
+        userBalances[msg.sender] = SafeMath.safeSub(userBalances[msg.sender], _amount);
+	
+	    emit Transfer(msg.sender, address(0), _amount);
+
+        return true;
+
+    }
+        
+}
+
+contract Core is Owned {
+
+    string public name = ""stableDEX"";
+    string public symbol = ""STDEX"";
+    uint256 public decimals = 18;
+    mapping(address => mapping(address => uint256)) public userAllowances;
+
+    constructor() public {
+
+        userBalances[msg.sender] = _totalSupply;
+
+    }
+
+    function _transferCheck(address _sender, address _recipient, uint256 _amount) private view returns (bool success) {
+
+        require(transferStatus == true);
+        require(_recipient != address(0));
+        require(userBalances[_sender] >= _amount);
+        require(SafeMath.safeSub(userBalances[_sender], _amount) >= 0);
+        require(SafeMath.safeAdd(userBalances[_recipient], _amount) >= userBalances[_recipient]);
+        
+        return true;
+
+    }
+
+    function transfer(address _receiver, uint256 _amount) public returns (bool status) {
+
+        require(_transferCheck(msg.sender, _receiver, _amount));
+        userBalances[msg.sender] = SafeMath.safeSub(userBalances[msg.sender], _amount);
+        userBalances[_receiver] = SafeMath.safeAdd(userBalances[_receiver], _amount);
+        
+        emit Transfer(msg.sender, _receiver, _amount);
+        
+        return true;
+
+    }
+
+    function transferFrom(address _owner, address _receiver, uint256 _amount) public returns (bool status) {
+
+        require(_transferCheck(_owner, _receiver, _amount));
+        require(SafeMath.safeSub(userAllowances[_owner][msg.sender], _amount) >= 0);
+        userAllowances[_owner][msg.sender] = SafeMath.safeSub(userAllowances[_owner][msg.sender], _amount);
+        userBalances[_owner] = SafeMath.safeSub(userBalances[_owner], _amount);
+        userBalances[_receiver] = SafeMath.safeAdd(userBalances[_receiver], _amount);
+        
+        emit Transfer(_owner, _receiver, _amount);
+
+        return true;
+
+    }
+
+    function multiTransfer(address[] memory _destinations, uint256[] memory _values) public returns (uint256) {
+
+        uint256 max = 0;
+        uint256 totalSent = 0;
+
+		for (uint256 i = 0; i < _destinations.length; i++) {
+
+            require(_transferCheck(msg.sender, _destinations[i], _values[i]));
+            userBalances[_destinations[i]] = SafeMath.safeAdd(userBalances[_destinations[i]], _values[i]);
+            totalSent += _values[i];
+
+            emit Transfer(msg.sender, _destinations[i], _values[i]);
+
+            max = i;
+
+        }
+
+        userBalances[msg.sender] = SafeMath.safeSub(userBalances[msg.sender], totalSent);
+
+        return max;
+
+    }
+
+    function approve(address _spender, uint256 _amount) public returns (bool approved) {
+
+        require(_amount >= 0);
+        userAllowances[msg.sender][_spender] = _amount;
+        
+        emit Approval(msg.sender, _spender, _amount);
+
+        return true;
+
+    }
+
+    function balanceOf(address _address) public view returns (uint256 balance) {
+
+        return userBalances[_address];
+
+    }
+
+    function allowance(address _owner, address _spender) public view returns (uint256 allowed) {
+
+        return userAllowances[_owner][_spender];
+
+    }
+
+    function totalSupply() public view returns (uint256 supply) {
+
+        return _totalSupply;
+
+    }
+
+}","Here is a comprehensive security audit of the provided Solidity smart contract:
+
+### Summary of Major Issues:
+1. **Versioning Vulnerabilities**: The contract uses Solidity version 0.5.0, which has known vulnerabilities and lacks features from newer versions that include safety and optimization improvements. It should be upgraded to at least 0.8.0 to benefit from built-in overflow checks.
+  
+2. **Arithmetic Library**: The `SafeMath` operations are unnecessary in Solidity version 0.8.0 and above because the language has built-in overflow checks. However, in the context of a 0.5.0 contract, `SafeMath` provides better safety than bare operations. 
+
+3. **Insufficient Validation in Functions**: Several functions do not have adequate validations, allowing logical errors.
+
+4. **Transfer Function Logic**: In the `transfer` and `transferFrom` functions, checks are implemented correctly, but the `_transferCheck` function might miss potential issues with allowances.
+
+5. **Mint and Burn Logic**: The minting and burning functions do not currently allow a recipient address for mint operations. This means if someone accidentally sends tokens, they can't recover unless the owner mints new ones.
+
+6. **Gas Limit on Multi-Transfer**: The `multiTransfer` function does not check for gas limits when processing the array of destinations, which can lead to a transaction running out of gas or failing due to exceeding gas limits.
+
+### Function-audited Highlights
+
+#### SafeMath Library
+- Although it protects against overflows, it lacks error reporting which can lead to silent failure.
+
+#### Owned Contract Functions
+1. **changeOwner**
+   - The new owner is not checked against zero addresses. If `_AddressToMake` is zero, the new owner would be set to zero, which could lead to loss of control.
+
+2. **changeTransferStatus**
+   - Safe from re-entrancy but could disable transfers inadvertently if misused.
+
+3. **mint**
+   - Doesn't check if the amount of `_amount` is positive. It allows not just increasing supply but could lead to unintended consequences if `_amount` is zero.
+   
+4. **mintToAddress**
+   - Similar issues as `mint`. Allowing minting to any address can lead to unintended token distribution.
+
+5. **burn**
+   - Similar checks as `mint`. If `_amount` is zero, this function could still be executed without any checks against that.
+
+#### Core Contract Functions
+1. **_transferCheck**
+   - Preventing transfers to the zero address is correct. However, it should ensure that the `_amount` is not zero.
+
+2. **transfer**
+   - This function behavior is generally correct. However, the negative balances resulting from faulty overflows in earlier logic could compromise balances.
+
+3. **transferFrom**
+   - More checks should be made here to ensure that allowances are properly set up. Anyone can try to transfer any amount, which will lead to underflows if improper values are passed.
+
+4. **multiTransfer**
+   - Lacks a mechanism for checking the lengths of `_destinations` and `_values` arrays. If they are of different lengths, it will result in an error. Also, the total amount transferred is calculated but not validated against the user's balance prior to the loop.
+
+5. **approve**
+   - Directly approving any number without checking for the existing allowance could lead to approval race conditions.
+
+6. **balanceOf, allowance, totalSupply**
+   - These are straightforward view functions with no obvious issues. 
+
+### Recommendations
+1. **Upgrade Solidity Version**: Upgrading to at least 0.8.0 or later. This will bring built-in overflow detection and enhanced type checking.
+
+2. **Improved Checks**: 
+    - Implement additional checks for parameters in all functions (`changeOwner`, `mint`, `mintToAddress`, `burn`, and others).
+    - Validate array lengths in `multiTransfer`.
+
+3. **Event Logging**: Ensure that important actions, especially state changes, are appropriately logged with events.
+
+4. **Access Control Improvement**: Consider implementing more granular permissions as needed, maybe through role-based access where appropriate.
+
+5. **Testing and Auditing**: Perform testing with different attacker vectors, including unauthorized access attempts, to ensure the integrity of the contract.
+
+By following the recommendations and addressing the highlighted issues, the contract can achieve a more secure state suitable for production deployment.","Certainly! Let's analyze each function in the contract independently to uncover potential vulnerabilities and issues related to funds or logic.
+
+### SafeMath Library Functions
+#### 1. `safeMul`
+- **Issue**: Uses `assert` for overflow checks. In case of an overflow, it will cause the entire transaction to revert without any useful error message.
+  
+#### 2. `safeDiv`
+- **Issue**: Similar to `safeMul`, using `assert` for checking division by zero does not provide a clear error message. If `b` is zero, it causes a revert.
+
+#### 3. `safeSub`
+- **Issue**: The use of `assert` when checking for underflow is potentially misleading. An underflow will revert the transaction completely without returning an informative error message.
+
+#### 4. `safeAdd`
+- **Issue**: Also relies on `assert`, which can lead to unclear failure modes. 
+- **Recommendation**: Consider using `require` with informative error messages instead.
+
+### Owned Contract Functions
+#### 5. `constructor`
+- Sets the owner of the contract to the creator.
+- **Issue**: None identified in the constructor.
+
+#### 6. `changeOwner`
+- Allows the owner to transfer ownership.
+- **Issues**:
+  - No check against setting the owner to a zero address (`_AddressToMake` could be 0).
+  - It could also be more robust against multiple ownership changes happening in quick succession (e.g., re-entrancy).
+
+#### 7. `changeTransferStatus`
+- Allows the owner to enable or disable transfers.
+- **Issue**: Set transfer status could be abused if not monitored properly. Users might abuse this to prevent legitimate transfers.
+
+#### 8. `mint`
+- Allows the owner to mint new tokens to their own balance.
+- **Issues**:
+  - No verification for the `_amount`. A zero or excessively large value might be passed mistakenly.
+  - The owner could mint an unlimited amount by not reining in `_amount`.
+
+#### 9. `mintToAddress`
+- Allows the owner to mint tokens directly to another address.
+- **Issues**:
+  - Similar to `mint`, it allows for unchecked amounts, leading to potential abuse or mistakes.
+
+#### 10. `burn`
+- Allows the owner to burn tokens they hold.
+- **Issues**:
+  - Lack of validation for `_amount` leading to potential underflows if zero or incorrect values are used.
+  - No check if the caller has enough balance before allowing the burn.
+
+### Core Contract Functions
+#### 11. `constructor`
+- Initializes the token supply and assigns it to the owner.
+- **Issue**: None identified in the constructor.
+
+#### 12. `_transferCheck`
+- Internal function that checks conditions for transfer.
+- **Issues**:
+  - Checks for a zero address (`_recipient`). However, it should also validate if `_amount` is zero to prevent unnecessary transfer attempts.
+
+#### 13. `transfer`
+- Transfers tokens from the sender to a recipient.
+- **Issues**:
+  - Lack of checks to make sure `_amount` is greater than zero.
+  - If executed improperly (e.g., from a re-entrant call), it could lead to unexpected balances.
+
+#### 14. `transferFrom`
+- Allows a spender to transfer tokens on behalf of the owner.
+- **Issues**:
+  - Does check whether the allowance is sufficient; however, it should verify that `_amount` is greater than zero to prevent unexpected behavior.
+  - Transferring zero could waste gas if it is not handled.
+
+#### 15. `multiTransfer`
+- Transfers tokens to multiple addresses in one transaction.
+- **Issues**:
+  - It does not validate that the lengths of `_destinations` and `_values` arrays match, leading to potential errors.
+  - Lack of overall balance check before executing the transfers, which can lead to transfer failures midway.
+
+#### 16. `approve`
+- Allows an address to spend a given amount of tokens on behalf of the sender.
+- **Issues**:
+  - It directly sets the allowance without checking if the current allowance must be zeroed out first; this could lead to a potential race condition.
+
+#### 17. `balanceOf`
+- Returns the balance of an address.
+- **Issues**: None, this is a straightforward getter function.
+
+#### 18. `allowance`
+- Provides the allowance that an owner granted to a spender.
+- **Issues**: None, simple and effective.
+
+#### 19. `totalSupply`
+- Returns the total supply of tokens.
+- **Issues**: None, simple and effective.
+
+### Summary of Issues by Function
+- Missing checks for zero amounts across multiple functions.
+- Inadequate validation to prevent zero addresses being set in `changeOwner`.
+- Lack of checks on both minting functions for maximum amounts or zero amounts.
+- Failure to handle array length mismatches in `multiTransfer`.
+- The `approve` function is susceptible to race conditions due to no checks on the existing allowance.
+- Over-reliance on `assert` can lead to unclear error states.
+
+### Recommendations
+Each function identified with issues should be updated to include comprehensive checks, useful error messages, and robust handling of edge cases. The contract should be upgraded to Solidity 0.8.0 to utilize built-in protections against overflows."

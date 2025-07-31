@@ -196,50 +196,15 @@ Our models have successfully identified **11 vulnerabilities** across **4 differ
 
  > -- SushiYieldSource.sol of Project `14`: The `supplyTokenTo` function, the contract calls `sushiAddr.approve(address(sushiBar), amount);` which approves the SushiBar contract to spend the specified `amount` of tokens. If the `amount` is significantly larger than what is necessary for the current operation, it can lead to a situation where the SushiBar contract has excessive approval to spend tokens on behalf of the user. This can be exploited if the SushiBar contract is compromised or behaves unexpectedly, allowing an attacker to drain tokens from the user's account.
 
-```solidity
-  function supplyTokenTo(uint256 amount, address to) public override {
-      sushiAddr.transferFrom(msg.sender, address(this), amount);
-      sushiAddr.approve(address(sushiBar), amount);
-
-      ISushiBar bar = sushiBar;
-      uint256 beforeBalance = bar.balanceOf(address(this));
-      
-      bar.enter(amount);
-      
-      uint256 afterBalance = bar.balanceOf(address(this));
-      uint256 balanceDiff = afterBalance.sub(beforeBalance);
-      
-      balances[to] = balances[to].add(balanceDiff);
-  }
-```
 
   > --  NFTXStakingZap.sol of Project `69`: The contract contains a potential Unlimited Token Approval vulnerability in the constructor where it calls the approve function with a maximum value for the WETH token. Specifically, the line:
   `IERC20Upgradeable(address(IUniswapV2Router01(_sushiRouter).WETH())).approve(_sushiRouter, type(uint256).max);`
   This allows the sushiRouter to spend an unlimited amount of WETH tokens on behalf of the contract, which can be exploited if the sushiRouter is compromised or if there are any unforeseen issues with the router's implementation. 
 
-```solidity
-constructor(address _nftxFactory, address _sushiRouter) Ownable() ReentrancyGuard() {
-    nftxFactory = INFTXVaultFactory(_nftxFactory);
-    lpStaking = INFTXLPStaking(INFTXSimpleFeeDistributor(INFTXVaultFactory(_nftxFactory).feeDistributor()).lpStaking());
-    inventoryStaking = INFTXInventoryStaking(INFTXSimpleFeeDistributor(INFTXVaultFactory(_nftxFactory).feeDistributor()).inventoryStaking());
-    sushiRouter = IUniswapV2Router01(_sushiRouter);
-    WETH = IWETH(IUniswapV2Router01(_sushiRouter).WETH());
-    IERC20Upgradeable(address(IUniswapV2Router01(_sushiRouter).WETH())).approve(_sushiRouter, type(uint256).max);
-}
-```
-
  >  -- PARMinerV2.sol of Project `115`: The contract contains a line where it approves an unlimited amount of tokens for the core contract to spend on behalf of the PARMinerV2 contract. Specifically, the line `_par.approve(address(_a.parallel().core()), uint256(-1));` sets the allowance to the maximum possible value for the core contract. This creates a vulnerability known as Unlimited Token Approval, which can be exploited by malicious actors if they gain control over the core contract, allowing them to drain tokens from the PARMinerV2 contract without any restrictions.
 
 - **Lack of Input Validation**:
 >  -- sYETIToken.sol of Project `66`: In the `setTransferRatio` function, there is a check to ensure that the `newTransferRatio` is not zero and does not exceed `1e18`. However, there is no validation to ensure that the `newTransferRatio` is within a reasonable range for the intended use case. If an excessively high value were to be set, it could lead to unintended consequences in the contract's logic.
-
-```
-  function setTransferRatio(uint256 newTransferRatio) external onlyOwner {
-      require(newTransferRatio != 0, "Zero transfer ratio");
-      require(newTransferRatio <= 1e18, "Transfer ratio too high");
-      transferRatio = newTransferRatio;
-  }
-```
 
 -- **Handling Partial Withdrawals**
 > -- yVault.sol of Project `107`: The contract does not adequately handle scenarios where the old strategy may not have sufficient funds to fulfill the `withdraw` call for the full amount during migration. If the old strategy has insufficient funds, tokens could be left behind, leading to potential loss of funds or incomplete migration.
